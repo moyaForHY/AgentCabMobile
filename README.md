@@ -1,152 +1,146 @@
 # AgentCab Mobile
 
-Android client for [AgentCab](https://www.agentcab.ai) — the AI API marketplace. Browse, call, and manage AI APIs directly from your phone, with deep device integration.
+**OpenClaw controls your computer. AgentCab Mobile controls your phone.**
 
-## What is this?
+[OpenClaw](https://github.com/anthropics/claude-code) lets AI read your files, run commands, and build software on your desktop. AgentCab Mobile does the same thing — but for your Android phone. AI APIs can scan your photos, read your calendar, manage your files, and even operate other apps on your behalf.
 
-AgentCab Mobile turns your Android phone into an AI-powered tool. APIs on the AgentCab marketplace can access your phone's capabilities (photos, contacts, files, location, etc.) through a standardized [Device Protocol](DEVICE_PROTOCOL.md), and execute actions on your device (delete files, create calendar events, share content, etc.).
+[Download APK](https://www.agentcab.ai/AgentCab.apk) · [Website](https://www.agentcab.ai) · [Device Protocol Docs](https://www.agentcab.ai/device-protocol)
 
-**Example use cases:**
-- 📸 **AI Life Weekly Report** — Scans your recent photos, calendar, call log → generates a personalized weekly summary
-- 🧹 **Phone Slim Coach** — Detects duplicate photos, large files, app caches → one-tap cleanup
-- 🎬 **Seedance Video** — Select a photo → AI generates a video
-- Any API on the marketplace that uses the Device Protocol
+---
 
-## Features
+## How it works
 
-- **4 tabs**: Home / APIs / Tasks / Me
-- **API marketplace**: Browse, search, filter AI APIs
-- **Dynamic forms**: Auto-generated input UI from any API's `input_schema`
-- **Device data collection**: 24 auto-collect formats (photos, calendar, contacts, GPS, storage, etc.)
-- **Action execution**: 28 executable action types (delete files, share, notify, accessibility, etc.)
-- **File management**: Download, open, share API output files
-- **Wallet**: Alipay recharge, balance tracking
-- **Bilingual**: Chinese/English with auto-detection
-- **Security**: Actions only executable from official/private APIs
-
-## Device Protocol
-
-The core innovation. See [DEVICE_PROTOCOL.md](DEVICE_PROTOCOL.md) for the full spec.
-
-**Input** — APIs declare what device data they need via `format` in `input_schema`:
-```json
-{
-  "photos": { "type": "array", "format": "device:photos_recent" },
-  "location": { "type": "object", "format": "device:location" },
-  "storage": { "type": "object", "format": "device:storage" }
-}
 ```
-The app auto-collects this data with user consent.
+You: "帮我整理手机"
 
-**Output** — APIs return structured actions the app can execute:
-```json
-{
-  "actions": [
-    { "type": "delete_file", "path": "/storage/.../duplicate.jpg" },
-    { "type": "notify", "title": "Done", "body": "Freed 2GB" },
-    { "type": "share_text", "text": "My AI weekly report..." }
-  ]
-}
+AgentCab Mobile:
+  1. Scans 500 photos → finds 72 duplicates
+  2. Checks Downloads → finds 5 large unused files
+  3. Reads WeChat cache → 2.2GB
+  4. Returns: "可以释放 3.2GB" + one-tap cleanup actions
+
+You: tap "Execute"
+  → 72 duplicate photos deleted
+  → 5 files cleaned
+  → notification: "已释放 3.2GB"
 ```
 
-## Tech Stack
+The AI doesn't just analyze — it **acts**. Delete files, create calendar events, share content, launch apps, even click buttons in other apps via accessibility.
 
-- **React Native 0.84** (New Architecture)
-- **Kotlin** native modules (12 modules for device capabilities)
-- **TypeScript** for all app logic
-- **AsyncStorage** for caching
-- **Keychain** for secure token storage
+## OpenClaw vs AgentCab Mobile
 
-### Native Modules (Kotlin)
+| | OpenClaw (Desktop) | AgentCab Mobile (Phone) |
+|---|---|---|
+| **Platform** | macOS / Linux / Windows | Android |
+| **AI Access** | Files, terminal, code | Photos, contacts, calendar, GPS, apps, screen |
+| **Actions** | Read/write files, run commands | Delete files, share, notify, control other apps |
+| **Interface** | CLI terminal | Native app with UI |
+| **APIs** | Claude API directly | AgentCab marketplace (any AI provider) |
+| **Protocol** | Tool use spec | [Device Protocol](DEVICE_PROTOCOL.md) |
 
-| Module | Capabilities |
-|--------|-------------|
-| PhotoScanner | MediaStore scan, thumbnails, pHash dedup, batch delete |
-| FileSystem | List, search, move, copy, delete, read/write files |
-| StorageScanner | Directory sizes, app caches, social app storage, burst detection |
-| Contacts | Read, search contacts |
-| Calendar | Read/write events |
-| AppList | Installed apps, launch apps |
-| AudioRecorder | Start/stop recording |
-| Screenshot | Capture screen |
-| Notifications | Local push notifications |
-| Accessibility | Read screen, click, type, scroll, swipe, navigate |
-| DeviceInfo | Battery, location, WiFi, device info |
+## What AI APIs can do with your phone
 
-## Getting Started
+### 📥 Collect (24 formats)
 
-### Prerequisites
+```
+device:photos          → Scan photo library
+device:calendar        → Read calendar events
+device:contacts        → Read contacts
+device:location        → GPS coordinates
+device:storage         → Storage stats
+device:files_downloads → List Downloads folder
+device:apps            → List installed apps
+device:screenshot      → Capture screen
+device:screen_content  → Read screen text (accessibility)
+device:social_storage  → WeChat/QQ/Douyin cache sizes
+device:photo_hashes    → Perceptual hashes for dedup
+device:photo_bursts    → Detect burst photos
+...and 12 more
+```
 
-- Node.js 18+
-- Java 17 (OpenJDK)
-- Android SDK (platform 35, build-tools 35)
-- Android device or emulator
+### 📤 Execute (28 actions)
 
-### Setup
+```
+delete_file       → Delete a file (with confirmation)
+create_event      → Add calendar event
+share_text        → Share to WeChat/WhatsApp/etc.
+copy_clipboard    → Copy to clipboard
+notify            → Push notification
+launch_app        → Open another app
+click_text        → Click UI element (accessibility)
+set_text          → Type into text field
+scroll / swipe    → Gesture control
+download_file     → Save file to device
+confirm_actions   → Batch operations with user approval
+...and 17 more
+```
+
+### 🔒 Security
+
+- Only **official** and **private** APIs can execute actions
+- Destructive actions require **user confirmation**
+- Device data collected only when user **taps "Collect"**
+- Permission denied → empty data, never blocks
+
+## Built-in AI APIs
+
+| API | What it does |
+|-----|-------------|
+| **AI Life Weekly** | Scans photos + calendar + calls → generates a personalized weekly report with infographic |
+| **Phone Slim Coach** | Finds duplicate photos, large files, app caches → one-tap cleanup plan |
+| **Seedance Video** | Photo → AI-generated video |
+
+Build your own: any API on [agentcab.ai](https://www.agentcab.ai) that uses the [Device Protocol](DEVICE_PROTOCOL.md) works automatically.
+
+## Tech
+
+- **React Native 0.84** (New Architecture / Fabric)
+- **12 Kotlin native modules** for device access
+- **TypeScript** app logic
+- **Bilingual** Chinese / English
+
+### Native Modules
+
+```
+PhotoScanner    → MediaStore, thumbnails, pHash, batch delete
+FileSystem      → CRUD files, search, storage stats
+StorageScanner  → Dir sizes, app caches, social storage, burst detect
+Contacts        → Read/search
+Calendar        → Read/write events
+AppList         → List/launch apps
+AudioRecorder   → Record audio
+Screenshot      → Capture screen
+Notifications   → Local push
+Accessibility   → Read screen, click, type, scroll, swipe
+DeviceInfo      → Battery, GPS, WiFi, device info
+```
+
+## Quick Start
 
 ```bash
-cd app
-npm install
+# Prerequisites: Node 18+, Java 17, Android SDK 35
 
-# Set environment variables
+cd app && npm install
+
 export JAVA_HOME="/path/to/java17"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 
-# Run on device
+# Run on connected device
 npx react-native run-android
-```
 
-### Build Release APK
-
-```bash
-cd app/android
-./gradlew assembleRelease
-# Output: app/android/app/build/outputs/apk/release/app-release.apk
-```
-
-## Project Structure
-
-```
-app/
-├── src/
-│   ├── screens/          # Home, APIs, Tasks, Me, Login, etc.
-│   ├── services/         # API client, device capabilities, action executor
-│   ├── components/       # DynamicForm, DownloadButton, Logo3D, etc.
-│   ├── hooks/            # useAuth, useCachedData, useTasks
-│   ├── i18n/             # Chinese/English translations
-│   └── navigation/       # Tab + stack navigation
-├── android/
-│   └── app/src/main/java/com/agentcab/
-│       ├── photos/       # PhotoScannerModule
-│       ├── filesystem/   # FileSystemModule
-│       ├── storage/      # StorageScannerModule
-│       ├── contacts/     # ContactsModule
-│       ├── calendar/     # CalendarModule
-│       ├── accessibility/# AccessibilityService + Module
-│       ├── deviceinfo/   # DeviceInfoModule
-│       ├── applist/      # AppListModule
-│       ├── recorder/     # AudioRecorderModule
-│       ├── screenshot/   # ScreenshotModule
-│       └── notification/ # NotificationModule
-├── DEVICE_PROTOCOL.md    # Device Protocol specification
-└── PRODUCT_PLAN.md       # Product roadmap
+# Build release
+cd android && ./gradlew assembleRelease
 ```
 
 ## Contributing
 
-Contributions welcome! Areas that need help:
+Want to help? Here's what we need:
 
-- **iOS support** — The Device Protocol is platform-agnostic, iOS implementation needed
-- **More ROM compatibility** — Testing on Huawei/EMUI, vivo/OriginOS, OPPO/ColorOS
-- **New device capabilities** — SMS reading, call log, notification history
-- **UI/UX improvements** — Better task result rendering, Markdown preview
+- 🍎 **iOS version** — Device Protocol is platform-agnostic, needs Swift implementation
+- 📱 **ROM testing** — Huawei/EMUI, vivo/OriginOS, OPPO/ColorOS, Samsung/OneUI
+- 🔌 **New capabilities** — SMS, call log, notification history, NFC
+- 🎨 **UI polish** — Markdown rendering, image preview, task result cards
 
 ## License
 
 MIT
-
-## Links
-
-- **Website**: [agentcab.ai](https://www.agentcab.ai)
-- **Device Protocol Docs**: [agentcab.ai/device-protocol](https://www.agentcab.ai/device-protocol)
-- **Download APK**: [agentcab.ai/AgentCab.apk](https://www.agentcab.ai/AgentCab.apk)
