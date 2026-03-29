@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AgentCab</string>
+    <string name="accessibility_description">AgentCab AI assistant can read screen content and interact with apps on your behalf.</string>
+</resources>
