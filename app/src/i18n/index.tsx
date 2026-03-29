@@ -13,12 +13,10 @@ const LANG_KEY = 'app_language'
 
 function getDeviceLanguage(): Lang {
   try {
-    // Try multiple ways to detect locale on Android
     if (Platform.OS === 'android') {
       const i18n = NativeModules.I18nManager
       const locale = i18n?.localeIdentifier || i18n?.locale || ''
       if (locale.startsWith('zh') || locale.includes('CN') || locale.includes('cn')) return 'zh'
-      // Fallback: check getConstants if available
       const constants = i18n?.getConstants?.() || {}
       const fallback = constants.localeIdentifier || ''
       if (fallback.startsWith('zh') || fallback.includes('CN')) return 'zh'
@@ -44,16 +42,18 @@ const I18nContext = createContext<I18nContextType>({
 })
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    const saved = storage.getString(LANG_KEY)
-    if (saved === 'zh' || saved === 'en') return saved
-    const detected = getDeviceLanguage()
-    return detected
-  })
+  const [lang, setLangState] = useState<Lang>(getDeviceLanguage())
+
+  // Load saved language preference async
+  useEffect(() => {
+    storage.getStringAsync(LANG_KEY).then(saved => {
+      if (saved === 'zh' || saved === 'en') setLangState(saved)
+    })
+  }, [])
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
-    storage.setString(LANG_KEY, l)
+    storage.setStringAsync(LANG_KEY, l)
   }, [])
 
   return (

@@ -47,6 +47,7 @@ export default {
   download: '下载',
   saving: '保存中...',
   saved: '已保存 ✓',
+  open: '打开',
   retry: '重试',
   missing: '缺少必填项',
 

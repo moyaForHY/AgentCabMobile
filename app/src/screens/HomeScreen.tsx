@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { colors, gradients, radii, spacing, fontSize, fontWeight } from '../util
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { fetchWallet, fetchSkills, fetchCalls, type Skill } from '../services/api'
+import { useCachedData } from '../hooks/useCachedData'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -53,32 +54,24 @@ function PulseDot() {
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth()
   const { t } = useI18n()
-  const [wallet, setWallet] = useState<any>(null)
-  const [recentSkills, setRecentSkills] = useState<Skill[]>([])
-  const [recentCalls, setRecentCalls] = useState<any[]>([])
-  const [refreshing, setRefreshing] = useState(false)
 
-  const load = async () => {
-    try {
-      const w = await fetchWallet()
-      setWallet(w)
-    } catch {}
-    try {
-      const s = await fetchSkills(1, 6)
-      setRecentSkills(s.items.filter(sk => sk.status === 'published' || sk.status === 'active').slice(0, 4))
-    } catch {}
-    try {
-      const c = await fetchCalls(1, 5)
-      setRecentCalls(c.items)
-    } catch {}
-  }
+  const walletFetcher = useCallback(() => fetchWallet(), [])
+  const skillsFetcher = useCallback(async () => {
+    const s = await fetchSkills(1, 6)
+    return s.items.filter(sk => sk.status === 'published' || sk.status === 'active').slice(0, 4)
+  }, [])
+  const callsFetcher = useCallback(async () => {
+    const c = await fetchCalls(1, 5)
+    return c.items
+  }, [])
 
-  useEffect(() => { load() }, [])
+  const { data: wallet, refresh: refreshWallet, refreshing: r1 } = useCachedData('home_wallet', walletFetcher, null)
+  const { data: recentSkills, refresh: refreshSkills, refreshing: r2 } = useCachedData<Skill[]>('home_skills', skillsFetcher, [])
+  const { data: recentCalls, refresh: refreshCalls, refreshing: r3 } = useCachedData<any[]>('home_calls', callsFetcher, [])
 
+  const refreshing = r1 || r2 || r3
   const onRefresh = async () => {
-    setRefreshing(true)
-    await load()
-    setRefreshing(false)
+    await Promise.all([refreshWallet(), refreshSkills(), refreshCalls()])
   }
 
   return (

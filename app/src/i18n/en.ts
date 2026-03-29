@@ -47,6 +47,7 @@ export default {
   download: 'Download',
   saving: 'Saving...',
   saved: 'Saved ✓',
+  open: 'Open',
   retry: 'Retry',
   missing: 'Missing Input',
 

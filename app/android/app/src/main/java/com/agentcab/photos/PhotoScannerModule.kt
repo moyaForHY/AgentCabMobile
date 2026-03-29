@@ -283,6 +283,41 @@ class PhotoScannerModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    /**
+     * Delete a photo by content URI.
+     */
+    @ReactMethod
+    fun deletePhoto(uri: String, promise: Promise) {
+        try {
+            val contentUri = Uri.parse(uri)
+            val deleted = reactApplicationContext.contentResolver.delete(contentUri, null, null)
+            promise.resolve(deleted > 0)
+        } catch (e: Exception) {
+            promise.reject("DELETE_ERROR", "Failed to delete photo: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Batch delete photos by content URIs.
+     */
+    @ReactMethod
+    fun batchDeletePhotos(uris: ReadableArray, promise: Promise) {
+        try {
+            var count = 0
+            for (i in 0 until uris.size()) {
+                val uri = uris.getString(i) ?: continue
+                try {
+                    val contentUri = Uri.parse(uri)
+                    val deleted = reactApplicationContext.contentResolver.delete(contentUri, null, null)
+                    if (deleted > 0) count++
+                } catch (_: Exception) {}
+            }
+            promise.resolve(count)
+        } catch (e: Exception) {
+            promise.reject("BATCH_DELETE_ERROR", e.message, e)
+        }
+    }
+
     private fun calculateInSampleSize(
         options: BitmapFactory.Options,
         reqWidth: Int,

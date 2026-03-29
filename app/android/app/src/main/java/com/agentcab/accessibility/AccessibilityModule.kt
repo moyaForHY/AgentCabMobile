@@ -1,7 +1,10 @@
 package com.agentcab.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Path
+import android.os.Build
 import android.provider.Settings
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
@@ -103,5 +106,69 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun openNotifications(promise: Promise) {
         promise.resolve(AgentAccessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS))
+    }
+
+    @ReactMethod
+    fun scroll(direction: String, promise: Promise) {
+        if (!AgentAccessibilityService.isRunning()) {
+            promise.reject("NOT_ENABLED", "Accessibility service is not enabled")
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            promise.reject("UNSUPPORTED", "Gestures require Android 7+")
+            return
+        }
+        try {
+            val inst = AgentAccessibilityService.instance!!
+            val dm = reactApplicationContext.resources.displayMetrics
+            val w = dm.widthPixels.toFloat()
+            val h = dm.heightPixels.toFloat()
+            val cx = w / 2
+            val path = Path()
+            when (direction) {
+                "down" -> { path.moveTo(cx, h * 0.6f); path.lineTo(cx, h * 0.3f) }
+                "up" -> { path.moveTo(cx, h * 0.3f); path.lineTo(cx, h * 0.6f) }
+                "left" -> { path.moveTo(w * 0.7f, h / 2); path.lineTo(w * 0.3f, h / 2) }
+                "right" -> { path.moveTo(w * 0.3f, h / 2); path.lineTo(w * 0.7f, h / 2) }
+                else -> { promise.reject("INVALID", "Direction must be up/down/left/right"); return }
+            }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+                .build()
+            inst.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) { promise.resolve(true) }
+                override fun onCancelled(gestureDescription: GestureDescription?) { promise.resolve(false) }
+            }, null)
+        } catch (e: Exception) {
+            promise.reject("SCROLL_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun swipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Int, promise: Promise) {
+        if (!AgentAccessibilityService.isRunning()) {
+            promise.reject("NOT_ENABLED", "Accessibility service is not enabled")
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            promise.reject("UNSUPPORTED", "Gestures require Android 7+")
+            return
+        }
+        try {
+            val inst = AgentAccessibilityService.instance!!
+            val path = Path()
+            path.moveTo(startX, startY)
+            path.lineTo(endX, endY)
+            val dur = if (durationMs > 0) durationMs.toLong() else 300L
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, dur))
+                .build()
+            inst.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) { promise.resolve(true) }
+                override fun onCancelled(gestureDescription: GestureDescription?) { promise.resolve(false) }
+            }, null)
+        } catch (e: Exception) {
+            promise.reject("SWIPE_ERROR", e.message, e)
+        }
     }
 }

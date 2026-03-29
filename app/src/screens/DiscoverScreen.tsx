@@ -21,6 +21,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchSkills, type Skill } from '../services/api'
+import { storage } from '../services/storage'
 
 export default function DiscoverScreen({ navigation }: any) {
   const { t } = useI18n()
@@ -28,6 +29,20 @@ export default function DiscoverScreen({ navigation }: any) {
   const [statuses, setStatuses] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+
+  // Load cache on mount
+  useEffect(() => {
+    storage.getStringAsync('discover_skills').then(cached => {
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          setSkills(parsed.skills || [])
+          setStatuses(parsed.statuses || {})
+          setLoading(false)
+        } catch {}
+      }
+    })
+  }, [])
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -51,8 +66,13 @@ export default function DiscoverScreen({ navigation }: any) {
     setSearching(true)
     try {
       const result = await fetchSkills(1, 50, cat === 'all' ? undefined : cat, q || undefined)
-      setSkills(result.items.filter((s: Skill) => s.status === 'published' || s.status === 'active'))
+      const filtered = result.items.filter((s: Skill) => s.status === 'published' || s.status === 'active')
+      setSkills(filtered)
       setStatuses(result.statuses || {})
+      // Cache initial load (no search/filter)
+      if (!q && (!cat || cat === 'all')) {
+        storage.setStringAsync('discover_skills', JSON.stringify({ skills: filtered, statuses: result.statuses || {} }))
+      }
     } catch {} finally { setLoading(false); setSearching(false) }
   }
 

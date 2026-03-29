@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { downloadToDevice } from '../services/fileDownloader'
+import { downloadToDevice, openFile } from '../services/fileDownloader'
 
-type Status = 'idle' | 'downloading' | 'done' | 'failed'
+type Status = 'idle' | 'checking' | 'downloading' | 'done' | 'failed'
 
 type Props = {
   url: string
@@ -14,23 +15,38 @@ type Props = {
 
 export default function DownloadButton({ url, filename, mimeType }: Props) {
   const { t } = useI18n()
-  const [status, setStatus] = useState<Status>('idle')
+  const [status, setStatus] = useState<Status>('checking')
+
+  const filePath = `/storage/emulated/0/Download/${filename}`
+
+  // Check if file already exists in Downloads
+  useEffect(() => {
+    ReactNativeBlobUtil.fs.exists(filePath)
+      .then(exists => setStatus(exists ? 'done' : 'idle'))
+      .catch(() => setStatus('idle'))
+  }, [filePath])
 
   const handlePress = async () => {
-    if (status === 'downloading' || status === 'done') return
+    if (status === 'downloading' || status === 'checking') return
+    if (status === 'done') {
+      try { await openFile(filePath, mimeType) } catch {}
+      return
+    }
     setStatus('downloading')
-    const ok = await downloadToDevice(url, filename, mimeType)
-    setStatus(ok ? 'done' : 'failed')
+    const path = await downloadToDevice(url, filename, mimeType)
+    setStatus(path ? 'done' : 'failed')
   }
 
   const label = {
+    checking: '...',
     idle: t.download,
     downloading: t.saving,
-    done: t.saved,
+    done: t.open || 'Open',
     failed: t.retry,
   }[status]
 
   const textColor = {
+    checking: colors.ink500,
     idle: '#2563eb',
     downloading: colors.ink500,
     done: '#059669',

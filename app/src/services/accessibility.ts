@@ -46,3 +46,11 @@ export async function openRecents(): Promise<boolean> {
 export async function openNotifications(): Promise<boolean> {
   return AccessibilityManager.openNotifications()
 }
+
+export async function scroll(direction: 'up' | 'down' | 'left' | 'right'): Promise<boolean> {
+  return AccessibilityManager.scroll(direction)
+}
+
+export async function swipe(startX: number, startY: number, endX: number, endY: number, durationMs = 300): Promise<boolean> {
+  return AccessibilityManager.swipe(startX, startY, endX, endY, durationMs)
+}

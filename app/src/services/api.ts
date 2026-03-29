@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getAccessToken, setAccessToken } from './storage'
+import { isOnline } from './network'
 
 const API_BASE_URL = 'https://www.agentcab.ai/v1'
 
@@ -54,6 +55,11 @@ api.interceptors.response.use(
     if (!error.response) {
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         return Promise.reject(new Error('Request timeout. Please check your connection and try again.'))
+      }
+      // Check connectivity for a more helpful error message
+      const online = await isOnline().catch(() => false)
+      if (!online) {
+        return Promise.reject(new Error('You appear to be offline. Please check your internet connection and try again.'))
       }
       return Promise.reject(new Error('Network error. Please check your internet connection.'))
     }
@@ -162,6 +168,11 @@ export async function fetchSkills(page = 1, pageSize = 20, category?: string, q?
 }
 
 export const fetchSkillsWithStatus = fetchSkills
+
+export async function fetchMySkills(): Promise<Skill[]> {
+  const { data } = await api.get('/skills/my')
+  return data.data
+}
 
 export async function fetchSkillById(skillId: string) {
   const { data } = await api.get(`/skills/${skillId}`)

@@ -113,6 +113,20 @@ export function findDuplicates(
   return groups
 }
 
+/**
+ * Delete a photo by content URI.
+ */
+export async function deletePhoto(uri: string): Promise<boolean> {
+  return PhotoScanner.deletePhoto(uri)
+}
+
+/**
+ * Batch delete photos by content URIs.
+ */
+export async function batchDeletePhotos(uris: string[]): Promise<number> {
+  return PhotoScanner.batchDeletePhotos(uris)
+}
+
 function hammingDistance(a: string, b: string): number {
   if (a.length !== b.length) return 64 // max distance
 

@@ -34,7 +34,10 @@ export async function pickPhoto(): Promise<PickedFile | null> {
     if (result.didCancel || !result.assets?.length) return null
     const a = result.assets[0]
     return { uri: a.uri || '', name: a.fileName || 'photo.jpg', size: a.fileSize || 0, mimeType: a.type || 'image/jpeg' }
-  } catch { return null }
+  } catch (err) {
+    console.warn('pickPhoto failed:', err)
+    return null
+  }
 }
 
 export async function pickPhotos(limit = 10): Promise<PickedFile[]> {
@@ -75,7 +78,10 @@ export async function pickVideo(): Promise<PickedFile | null> {
     if (result.didCancel || !result.assets?.length) return null
     const a = result.assets[0]
     return { uri: a.uri || '', name: a.fileName || 'video.mp4', size: a.fileSize || 0, mimeType: a.type || 'video/mp4' }
-  } catch { return null }
+  } catch (err) {
+    console.warn('pickVideo failed:', err)
+    return null
+  }
 }
 
 // ─── Document / Any File ─────────────────────────────────────
@@ -92,6 +98,7 @@ export async function pickFile(type?: string[]): Promise<PickedFile | null> {
     }
   } catch (err: any) {
     if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) return null
+    console.warn('pickFile failed:', err)
     return null
   }
 }
@@ -138,7 +145,8 @@ export type LocationData = {
 }
 
 export async function getLocation(): Promise<LocationData | null> {
-  return new Promise(resolve => {
+  const LOCATION_TIMEOUT = 10000
+  const locationPromise = new Promise<LocationData | null>(resolve => {
     if (Platform.OS !== 'android') { resolve(null); return }
     PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
       .then(granted => {
@@ -153,11 +161,15 @@ export async function getLocation(): Promise<LocationData | null> {
             accuracy: pos.coords.accuracy,
           }),
           () => resolve(null),
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+          { enableHighAccuracy: true, timeout: LOCATION_TIMEOUT, maximumAge: 60000 },
         )
       })
       .catch(() => resolve(null))
   })
+  return Promise.race([
+    locationPromise,
+    new Promise<null>(resolve => setTimeout(() => resolve(null), LOCATION_TIMEOUT)),
+  ])
 }
 
 // ─── Share ───────────────────────────────────────────────────

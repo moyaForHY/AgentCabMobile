@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -13,26 +13,37 @@ import LinearGradient from 'react-native-linear-gradient'
 import { colors, fontWeight } from '../utils/theme'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
-import { fetchWallet, resetApiKey } from '../services/api'
+import { fetchWallet, resetApiKey, fetchMySkills, type Skill } from '../services/api'
+import { useCachedData } from '../hooks/useCachedData'
 
 export default function ProfileScreen({ navigation }: any) {
   const { user, logout, refreshUser } = useAuth()
   const { t, lang, setLang } = useI18n()
-  const [wallet, setWallet] = useState<any>(null)
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [keyVisible, setKeyVisible] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
+  const [apisExpanded, setApisExpanded] = useState(false)
+  const [apiFilter, setApiFilter] = useState<string>('all')
 
-  const load = async () => {
-    try { const w = await fetchWallet(); setWallet(w) } catch {}
-  }
+  const walletFetcher = useCallback(() => fetchWallet(), [])
+  const apisFetcher = useCallback(() => fetchMySkills(), [])
 
-  useEffect(() => { load() }, [])
+  const { data: wallet, refresh: refreshWallet, refreshing: r1 } = useCachedData('profile_wallet', walletFetcher, null)
+  const { data: myApis, refresh: refreshApis, refreshing: r2 } = useCachedData<Skill[]>('profile_my_apis', apisFetcher, [])
+
+  const nonDeletedApis = myApis.filter(a => a.status !== 'deleted')
+  const filteredApis = apiFilter === 'all'
+    ? nonDeletedApis
+    : apiFilter === 'private'
+    ? nonDeletedApis.filter(a => a.visibility === 'private')
+    : nonDeletedApis.filter(a => a.status === apiFilter)
+
+  // Collect unique statuses + visibility filters
+  const apiStatuses = [...new Set(nonDeletedApis.map(a => a.status))]
+  const filterOptions: string[] = ['all', ...apiStatuses, 'private']
+  const refreshing = r1 || r2
 
   const onRefresh = async () => {
-    setRefreshing(true)
-    await Promise.all([load(), refreshUser()])
-    setRefreshing(false)
+    await Promise.all([refreshWallet(), refreshApis(), refreshUser()])
   }
 
   const handleLogout = () => {
@@ -138,6 +149,57 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={s.actionBtnOutlineText}>{t.withdraw}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── My APIs ── */}
+      {nonDeletedApis.length > 0 && (
+        <View style={s.card}>
+          <TouchableOpacity style={s.myApiHeader} onPress={() => setApisExpanded(!apisExpanded)} activeOpacity={0.7}>
+            <Text style={s.myApiTitle}>My APIs ({nonDeletedApis.length})</Text>
+            <Text style={s.expandArrow}>{apisExpanded ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {apisExpanded && filterOptions.length > 2 && (
+            <View style={s.apiFilterRow}>
+              {filterOptions.map(st => {
+                const count = st === 'all' ? nonDeletedApis.length
+                  : st === 'private' ? nonDeletedApis.filter(a => a.visibility === 'private').length
+                  : nonDeletedApis.filter(a => a.status === st).length
+                return (
+                  <TouchableOpacity
+                    key={st}
+                    style={[s.apiFilterChip, apiFilter === st && s.apiFilterChipActive]}
+                    onPress={() => setApiFilter(st)}
+                    activeOpacity={0.7}>
+                    <Text style={[s.apiFilterText, apiFilter === st && s.apiFilterTextActive]}>
+                      {st} {count}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          )}
+          {apisExpanded && filteredApis.map((api, i) => (
+            <TouchableOpacity
+              key={api.id}
+              style={[s.myApiRow, i < filteredApis.length - 1 && s.myApiRowBorder]}
+              onPress={() => navigation.navigate('SkillDetail', { skillId: api.id })}
+              activeOpacity={0.6}>
+              <View style={s.myApiLeft}>
+                <Text style={s.myApiName} numberOfLines={1}>{api.name}</Text>
+                <Text style={s.myApiMeta}>{api.call_count} calls · {api.price_credits}c</Text>
+              </View>
+              <View style={[s.myApiStatus, {
+                backgroundColor: api.status === 'published' || api.status === 'active' ? '#ecfdf5' : '#fffbeb',
+              }]}>
+                <Text style={[s.myApiStatusText, {
+                  color: api.status === 'published' || api.status === 'active' ? '#059669' : '#d97706',
+                }]}>
+                  {api.status}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* ── API Key ── */}
       <View style={s.card}>
@@ -407,6 +469,23 @@ const s = StyleSheet.create({
   verifyBadgeOk: { backgroundColor: '#ecfdf5' },
   verifyText: { fontSize: 12, fontWeight: fontWeight.semibold, color: '#dc2626' },
   verifyTextOk: { color: '#059669' },
+
+  // My APIs
+  apiFilterRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, paddingBottom: 10, flexWrap: 'wrap' },
+  apiFilterChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: '#f1f5f9' },
+  apiFilterChipActive: { backgroundColor: '#2563eb' },
+  apiFilterText: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.ink600 },
+  apiFilterTextActive: { color: '#fff' },
+  myApiHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 0 },
+  myApiTitle: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.ink950 },
+  expandArrow: { fontSize: 10, color: colors.ink500 },
+  myApiRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 14 },
+  myApiRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(37,99,235,0.06)' },
+  myApiLeft: { flex: 1, marginRight: 12 },
+  myApiName: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink950 },
+  myApiMeta: { fontSize: 12, color: colors.ink500, marginTop: 2 },
+  myApiStatus: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  myApiStatusText: { fontSize: 11, fontWeight: fontWeight.semibold },
 
   // Language
   langRow: {

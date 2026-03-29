@@ -14,13 +14,14 @@ import { useI18n } from '../i18n'
 import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, type Skill } from '../services/api'
 import DownloadButton from '../components/DownloadButton'
 import { taskManager } from '../services/taskManager'
+import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
 import DynamicForm from '../components/DynamicForm'
 import type { PickedFile } from '../services/deviceCapabilities'
 
 type PageTab = 'use' | 'example'
 
 export default function SkillDetailScreen({ route, navigation }: any) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { skillId } = route.params
   const [skill, setSkill] = useState<Skill | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,6 +32,10 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [example, setExample] = useState<any>(null)
   const [exampleFiles, setExampleFiles] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<PageTab>('use')
+  const [deviceData, setDeviceData] = useState<Record<string, any>>({})
+  const [collecting, setCollecting] = useState(false)
+  const [deviceFormats, setDeviceFormats] = useState<string[]>([])
+  const [fieldStatuses, setFieldStatuses] = useState<Record<string, 'idle' | 'collecting' | 'done' | 'failed'>>({})
 
   useEffect(() => {
     ;(async () => {
@@ -44,6 +49,9 @@ export default function SkillDetailScreen({ route, navigation }: any) {
           if (prop.default != null) defaults[key] = prop.default
         }
         setValues(defaults)
+
+        // Detect device: formats (user triggers collection manually)
+        setDeviceFormats(getDeviceFormats(s.input_schema as any))
 
         if (s.example_call_id) {
           try {
@@ -63,19 +71,44 @@ export default function SkillDetailScreen({ route, navigation }: any) {
     })()
   }, [skillId])
 
+  const handleCollectDeviceData = useCallback(async () => {
+    if (!skill || collecting) return
+    setCollecting(true)
+    // Init all statuses to idle
+    const initStatuses: Record<string, 'idle' | 'collecting' | 'done' | 'failed'> = {}
+    deviceFormats.forEach(f => { initStatuses[f] = 'idle' })
+    setFieldStatuses(initStatuses)
+
+    const data = await collectAllDeviceData(skill.input_schema as any, (key, status) => {
+      setFieldStatuses(prev => ({ ...prev, [key]: status }))
+    })
+    setDeviceData(data)
+    setValues(prev => ({ ...prev, ...data }))
+    setCollecting(false)
+  }, [skill, collecting, deviceFormats])
+
   const handleFilePicked = useCallback((fieldKey: string, files: PickedFile[]) => {
     setPickedFiles(prev => ({ ...prev, [fieldKey]: files }))
   }, [])
 
   const handleSubmit = useCallback(async () => {
     if (!skill) return
+
+    // Check device data collected
+    if (deviceFormats.length > 0 && Object.keys(deviceData).length === 0) {
+      Alert.alert(t.missing, lang === 'zh' ? '请先点击"采集设备数据"' : 'Please collect device data first')
+      return
+    }
+
     const requiredFields: string[] = (skill.input_schema as any)?.required || []
     for (const key of requiredFields) {
+      const prop = (skill.input_schema?.properties as any)?.[key]
+      // Skip device:* fields — they're handled by collector
+      if (prop?.format?.startsWith('device:')) continue
       const isFileField = key === 'files' || key === 'file'
       if (isFileField) {
         if (!pickedFiles[key]?.length) { Alert.alert(t.missing, `"${key}"`); return }
       } else if (values[key] == null || values[key] === '') {
-        const prop = (skill.input_schema?.properties as any)?.[key]
         Alert.alert(t.missing, `"${prop?.title || key}"`); return
       }
     }
@@ -119,6 +152,18 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
   if (loading) return <View style={st.center}><ActivityIndicator size="large" color={colors.primary} /></View>
   if (!skill) return null
+
+  // Filter out device:* fields from manual form — they're auto-collected
+  function filterManualFields(schema: any): any {
+    if (!schema?.properties) return schema
+    const filtered: Record<string, any> = {}
+    for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+      if (!prop.format?.startsWith('device:')) {
+        filtered[key] = prop
+      }
+    }
+    return { ...schema, properties: filtered }
+  }
 
   const hasExample = !!example
   const hasInputFields = Object.keys(skill.input_schema?.properties || {}).length > 0
@@ -184,12 +229,23 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {/* Input form */}
+            {/* Device data collection */}
+            {deviceFormats.length > 0 && (
+              <DeviceDataCard
+                skill={skill}
+                collecting={collecting}
+                fieldStatuses={fieldStatuses}
+                onCollect={handleCollectDeviceData}
+                collected={Object.keys(deviceData).length > 0}
+              />
+            )}
+
+            {/* Input form (manual fields only — skip device: formats) */}
             {hasInputFields && (
               <View style={st.card}>
                 <Text style={st.sectionTitle}>{t.input}</Text>
                 <DynamicForm
-                  schema={skill.input_schema as any}
+                  schema={filterManualFields(skill.input_schema as any)}
                   values={values}
                   onChange={setValues}
                   pickedFiles={pickedFiles}
@@ -264,6 +320,66 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   )
 }
 
+function DeviceDataCard({ skill, collecting, fieldStatuses, onCollect, collected }: {
+  skill: Skill
+  collecting: boolean
+  fieldStatuses: Record<string, string>
+  onCollect: () => void
+  collected: boolean
+}) {
+  const { t } = useI18n()
+  const properties = skill.input_schema?.properties as Record<string, any> || {}
+  const deviceFields = Object.entries(properties).filter(([, p]: [string, any]) => p.format?.startsWith('device:'))
+
+  const statusIcon = (s: string) => {
+    switch (s) {
+      case 'collecting': return '↻'
+      case 'done': return '✓'
+      case 'failed': return '✕'
+      default: return '○'
+    }
+  }
+  const statusColor = (s: string) => {
+    switch (s) {
+      case 'collecting': return '#2563eb'
+      case 'done': return '#059669'
+      case 'failed': return '#dc2626'
+      default: return '#94a3b8'
+    }
+  }
+
+  return (
+    <View style={st.deviceCard}>
+      <Text style={st.deviceTitle}>Device Data</Text>
+      <View style={st.deviceList}>
+        {deviceFields.map(([key, prop]: [string, any]) => {
+          const status = fieldStatuses[key] || 'idle'
+          return (
+            <View key={key} style={st.deviceRow}>
+              <Text style={[st.deviceStatusIcon, { color: statusColor(status) }]}>{statusIcon(status)}</Text>
+              <Text style={st.deviceLabel}>{prop.title || key.replace('device:', '')}</Text>
+              <Text style={[st.deviceStatus, { color: statusColor(status) }]}>
+                {status === 'idle' ? '' : status === 'collecting' ? 'Collecting...' : status === 'done' ? 'Done' : 'Failed'}
+              </Text>
+            </View>
+          )
+        })}
+      </View>
+      <TouchableOpacity
+        style={[st.collectBtn, (collecting || collected) && st.collectBtnDone]}
+        onPress={onCollect}
+        disabled={collecting}
+        activeOpacity={0.7}>
+        {collecting ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={st.collectBtnText}>{collected ? '✓ Collected — Tap to Refresh' : 'Collect Device Data'}</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  )
+}
+
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -326,6 +442,17 @@ const st = StyleSheet.create({
   tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: '#f8f8f7', borderWidth: 1, borderColor: '#f0f0ee' },
   tagText: { fontSize: 12, color: colors.ink600, fontWeight: fontWeight.medium },
   card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(37,99,235,0.08)', marginBottom: 16 },
+  // Device data
+  deviceCard: { backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(37,99,235,0.08)', marginBottom: 14 },
+  deviceTitle: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 12 },
+  deviceList: { gap: 8, marginBottom: 14 },
+  deviceRow: { flexDirection: 'row', alignItems: 'center' },
+  deviceStatusIcon: { fontSize: 12, fontWeight: fontWeight.bold, width: 18, textAlign: 'center' },
+  deviceLabel: { fontSize: 13, color: colors.ink800, flex: 1, marginLeft: 6 },
+  deviceStatus: { fontSize: 11, fontWeight: fontWeight.medium },
+  collectBtn: { backgroundColor: '#2563eb', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  collectBtnDone: { backgroundColor: '#059669' },
+  collectBtnText: { color: '#fff', fontSize: 13, fontWeight: fontWeight.bold },
   sectionTitle: { fontSize: 15, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 14 },
   callBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   callBtn: { paddingVertical: 15, alignItems: 'center', borderRadius: 12 },

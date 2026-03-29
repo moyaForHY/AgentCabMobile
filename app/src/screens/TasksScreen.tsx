@@ -14,6 +14,7 @@ import {
 import { colors, radii, spacing, fontSize, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchCalls } from '../services/api'
+import { useCachedData } from '../hooks/useCachedData'
 
 // ─── Status Pill ─────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -80,33 +81,16 @@ type Filter = typeof FILTERS[number]
 
 export default function TasksScreen({ navigation }: any) {
   const { t } = useI18n()
-  const [calls, setCalls] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
   const [filter, setFilter] = useState<Filter>('all')
 
-  const load = useCallback(async (p = 1, append = false) => {
-    try {
-      const data = await fetchCalls(p, 50)
-      setCalls(prev => append ? [...prev, ...data.items] : data.items)
-      setTotal(data.total)
-      setPage(p)
-    } catch {} finally { setLoading(false) }
+  const callsFetcher = useCallback(async () => {
+    const data = await fetchCalls(1, 50)
+    return data.items
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const { data: calls, loading, refreshing, refresh } = useCachedData<any[]>('tasks_calls', callsFetcher, [])
 
-  const onRefresh = async () => {
-    setRefreshing(true)
-    await load(1, false)
-    setRefreshing(false)
-  }
-
-  const loadMore = () => {
-    if (calls.length < total) load(page + 1, true)
-  }
+  const onRefresh = refresh
 
   const filtered = filter === 'all'
     ? calls
@@ -197,8 +181,6 @@ export default function TasksScreen({ navigation }: any) {
         renderItem={renderCall}
         contentContainerStyle={s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.3}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={s.empty}>

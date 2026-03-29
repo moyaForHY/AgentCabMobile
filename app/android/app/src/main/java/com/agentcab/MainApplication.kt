@@ -15,6 +15,8 @@ import com.agentcab.notification.NotificationPackage
 import com.agentcab.recorder.AudioRecorderPackage
 import com.agentcab.screenshot.ScreenshotPackage
 import com.agentcab.accessibility.AccessibilityPackage
+import com.agentcab.deviceinfo.DeviceInfoPackage
+import com.agentcab.storage.StorageScannerPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -33,6 +35,8 @@ class MainApplication : Application(), ReactApplication {
           add(AudioRecorderPackage())
           add(ScreenshotPackage())
           add(AccessibilityPackage())
+          add(DeviceInfoPackage())
+          add(StorageScannerPackage())
         },
     )
   }

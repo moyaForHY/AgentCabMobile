@@ -13,6 +13,7 @@ import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchCall } from '../services/api'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
+import { executeActions, type Action } from '../services/actionExecutor'
 import DownloadButton from '../components/DownloadButton'
 
 export default function TaskResultScreen({ route }: any) {
@@ -30,6 +31,9 @@ export default function TaskResultScreen({ route }: any) {
       setLoading(false)
     })()
   }, [taskId])
+
+  // Backend decides if actions can be executed
+  const actionsAllowed = call?.actions_allowed === true
 
   if (loading) {
     return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
@@ -89,6 +93,11 @@ export default function TaskResultScreen({ route }: any) {
           <Text style={s.sectionTitle}>{t.error}</Text>
           <Text style={s.errorMsg}>{call.error_message}</Text>
         </View>
+      )}
+
+      {/* Actions — only if backend allows */}
+      {actionsAllowed && output?.actions && Array.isArray(output.actions) && output.actions.length > 0 && (
+        <ActionsSection actions={output.actions} t={t} />
       )}
 
       {/* Output Files */}
@@ -166,6 +175,54 @@ export default function TaskResultScreen({ route }: any) {
 
       <View style={{ height: 32 }} />
     </ScrollView>
+  )
+}
+
+function ActionsSection({ actions, t }: { actions: Action[]; t: any }) {
+  const [executing, setExecuting] = useState(false)
+  const [executed, setExecuted] = useState(false)
+
+  const handleExecute = async () => {
+    setExecuting(true)
+    try {
+      const results = await executeActions(actions)
+      const failed = results.filter(r => !r.success)
+      if (failed.length === 0) {
+        Alert.alert('✓', `${results.length} actions executed`)
+      } else {
+        Alert.alert('Done', `${results.length - failed.length} succeeded, ${failed.length} failed`)
+      }
+      setExecuted(true)
+    } catch (err: any) {
+      Alert.alert(t.errorTitle, err.message)
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  return (
+    <View style={s.card}>
+      <Text style={s.sectionTitle}>Actions ({actions.length})</Text>
+      {actions.map((action, i) => (
+        <View key={i} style={s.actionItem}>
+          <View style={s.actionDot} />
+          <Text style={s.actionLabel}>
+            {action.type === 'confirm_actions' ? action.message : `${action.type}: ${action.path || action.text || action.title || action.url || action.packageName || ''}`}
+          </Text>
+        </View>
+      ))}
+      <TouchableOpacity
+        style={[s.executeBtn, (executing || executed) && s.executeBtnDone]}
+        onPress={handleExecute}
+        disabled={executing || executed}
+        activeOpacity={0.7}>
+        {executing ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={s.executeBtnText}>{executed ? '✓ Executed' : 'Execute All'}</Text>
+        )}
+      </TouchableOpacity>
+    </View>
   )
 }
 
@@ -261,6 +318,45 @@ const s = StyleSheet.create({
     paddingBottom: 14,
   },
   errorText: { fontSize: 14, color: '#dc2626' },
+
+  // Actions
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  actionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#2563eb',
+    marginTop: 6,
+    marginRight: 10,
+  },
+  actionLabel: {
+    fontSize: 13,
+    color: colors.ink700,
+    flex: 1,
+    lineHeight: 18,
+  },
+  executeBtn: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  executeBtnDone: {
+    backgroundColor: '#059669',
+  },
+  executeBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+  },
 
   // Files
   fileRow: {
