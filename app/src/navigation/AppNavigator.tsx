@@ -17,6 +17,8 @@ import WalletScreen from '../screens/WalletScreen'
 import SkillDetailScreen from '../screens/SkillDetailScreen'
 import TasksScreen from '../screens/TasksScreen'
 import TaskResultScreen from '../screens/TaskResultScreen'
+import AutomationsScreen from '../screens/AutomationsScreen'
+import CreateAutomationScreen from '../screens/CreateAutomationScreen'
 
 const Stack = createNativeStackNavigator()
 const Tab = createBottomTabNavigator()
@@ -131,6 +133,8 @@ export default function AppNavigator() {
             <Stack.Screen name="SkillDetail" component={SkillDetailScreen} options={{ headerShown: true, title: t.apiDetail }} />
             <Stack.Screen name="TaskResult" component={TaskResultScreen} options={{ headerShown: true, title: t.result }} />
             <Stack.Screen name="Wallet" component={WalletScreen} options={{ headerShown: true, title: t.wallet }} />
+            <Stack.Screen name="Automations" component={AutomationsScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="CreateAutomation" component={CreateAutomationScreen} options={{ headerShown: false }} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

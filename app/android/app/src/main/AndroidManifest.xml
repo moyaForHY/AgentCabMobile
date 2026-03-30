@@ -39,6 +39,10 @@
         tools:ignore="ProtectedPermissions" />
     <!-- Camera -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Automation alarms -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Allow querying Alipay app -->
     <queries>
@@ -81,5 +85,20 @@
           android:name="android.accessibilityservice"
           android:resource="@xml/accessibility_config" />
       </service>
+      <receiver
+        android:name=".automation.AlarmReceiver"
+        android:exported="false">
+        <intent-filter>
+          <action android:name="com.agentcab.AUTOMATION_ALARM" />
+        </intent-filter>
+      </receiver>
+
+      <receiver
+        android:name=".automation.BootReceiver"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.BOOT_COMPLETED" />
+        </intent-filter>
+      </receiver>
     </application>
 </manifest>

@@ -251,6 +251,14 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       ) : null}
 
+      {/* ── Automations ── */}
+      <View style={s.card}>
+        <TouchableOpacity style={s.langRow} onPress={() => navigation.navigate('Automations')} activeOpacity={0.6}>
+          <Text style={s.langLabel}>{t.automations}</Text>
+          <Text style={s.langValue}>→</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* ── Language ── */}
       <View style={s.card}>
         <TouchableOpacity style={s.langRow} onPress={toggleLanguage} activeOpacity={0.6}>

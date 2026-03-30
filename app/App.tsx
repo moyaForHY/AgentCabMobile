@@ -8,10 +8,13 @@ import ErrorBoundary from './src/components/ErrorBoundary'
 import { AppModalRoot } from './src/components/AppModal'
 import TaskNotification from './src/components/TaskNotification'
 import { checkForUpdate } from './src/services/updateChecker'
+import { initAutomationListener } from './src/services/automationService'
 
 export default function App() {
   useEffect(() => {
     checkForUpdate()
+    const cleanup = initAutomationListener()
+    return cleanup
   }, [])
 
   return (

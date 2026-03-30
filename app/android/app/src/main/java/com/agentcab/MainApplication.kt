@@ -19,6 +19,7 @@ import com.agentcab.deviceinfo.DeviceInfoPackage
 import com.agentcab.storage.StorageScannerPackage
 import com.agentcab.calllog.CallLogPackage
 import com.agentcab.sms.SmsPackage
+import com.agentcab.automation.AlarmSchedulerPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -41,6 +42,7 @@ class MainApplication : Application(), ReactApplication {
           add(StorageScannerPackage())
           add(CallLogPackage())
           add(SmsPackage())
+          add(AlarmSchedulerPackage())
         },
     )
   }
