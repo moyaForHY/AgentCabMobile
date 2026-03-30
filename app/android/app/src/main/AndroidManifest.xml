@@ -89,14 +89,6 @@
           android:resource="@xml/accessibility_config" />
       </service>
       <service
-        android:name=".automation.AutomationForegroundService"
-        android:exported="false"
-        android:foregroundServiceType="shortService" />
-      <service
-        android:name=".automation.AutomationHeadlessService"
-        android:exported="false"
-        android:foregroundServiceType="shortService" />
-      <service
         android:name=".automation.KeepAliveService"
         android:exported="false"
         android:foregroundServiceType="shortService" />

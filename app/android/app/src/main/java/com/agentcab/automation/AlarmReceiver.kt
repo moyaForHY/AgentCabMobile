@@ -7,11 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import androidx.work.Data
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
@@ -31,13 +26,12 @@ class AlarmReceiver : BroadcastReceiver() {
         // Ensure KeepAlive is running
         try { KeepAliveService.start(context) } catch (_: Exception) {}
 
-        // Check if React context is available (app running)
+        // Try to send JS event (KeepAlive keeps React context alive)
         try {
             val reactApp = context.applicationContext as? com.facebook.react.ReactApplication
             val reactContext = reactApp?.reactHost?.currentReactContext
 
             if (reactContext != null) {
-                // App running — send JS event directly
                 reactContext
                     .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                     ?.emit("onAutomationAlarm", Arguments.createMap().apply {
@@ -50,16 +44,15 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "Failed to send JS event: ${e.message}")
         }
 
-        // App not running — use WorkManager to start HeadlessJS via ForegroundService
-        Log.d(TAG, "App not running, enqueuing WorkManager for rule: $ruleId")
-
-        val workRequest = OneTimeWorkRequestBuilder<AutomationWorker>()
-            .setInputData(Data.Builder().putString("ruleId", ruleId).build())
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork("automation_$ruleId", ExistingWorkPolicy.REPLACE, workRequest)
+        // Fallback: launch app with ruleId (will auto-execute via IntentModule)
+        Log.d(TAG, "React context not available, launching app for rule: $ruleId")
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra("automationRuleId", ruleId)
+            }
+            if (launchIntent != null) context.startActivity(launchIntent)
+        } catch (_: Exception) {}
     }
 
     private fun rescheduleNext(context: Context, ruleId: String) {
