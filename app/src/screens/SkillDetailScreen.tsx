@@ -7,22 +7,26 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, type Skill } from '../services/api'
 import DownloadButton from '../components/DownloadButton'
+import { storage } from '../services/storage'
 import { taskManager } from '../services/taskManager'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
 import DynamicForm from '../components/DynamicForm'
+import { usePinnedApis } from '../hooks/usePinnedApis'
 import type { PickedFile } from '../services/deviceCapabilities'
 
 type PageTab = 'use' | 'example'
 
 export default function SkillDetailScreen({ route, navigation }: any) {
   const { t, lang } = useI18n()
-  const { skillId } = route.params
+  const { skillId, autoUse } = route.params
+  const { isPinned, pin, unpin } = usePinnedApis()
   const [skill, setSkill] = useState<Skill | null>(null)
   const [loading, setLoading] = useState(true)
   const [values, setValues] = useState<Record<string, any>>({})
@@ -36,40 +40,83 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [collecting, setCollecting] = useState(false)
   const [deviceFormats, setDeviceFormats] = useState<string[]>([])
   const [fieldStatuses, setFieldStatuses] = useState<Record<string, 'idle' | 'collecting' | 'done' | 'failed'>>({})
+  const [shouldAutoCollect, setShouldAutoCollect] = useState(false)
 
   useEffect(() => {
+    const cacheKey = `skill_detail_${skillId}`
+
+    const applySkillData = (s: Skill, w: { credits: any }, ex: any, exFiles: any[]) => {
+      setSkill(s)
+      setBalance(Number(w.credits))
+      const defaults: Record<string, any> = {}
+      const props = s.input_schema?.properties as Record<string, any> || {}
+      for (const [key, prop] of Object.entries(props)) {
+        if (prop.default != null) defaults[key] = prop.default
+      }
+      setValues(defaults)
+
+      const formats = getDeviceFormats(s.input_schema as any)
+      setDeviceFormats(formats)
+
+      if (autoUse && formats.length > 0) {
+        setShouldAutoCollect(true)
+      }
+
+      if (ex) setExample(ex)
+      if (exFiles?.length) setExampleFiles(exFiles)
+    }
+
     ;(async () => {
+      // 1. Load from cache first
+      try {
+        const cached = await storage.getStringAsync(cacheKey)
+        if (cached) {
+          const { skill: cachedSkill, wallet: cachedWallet, example: cachedExample, exampleFiles: cachedExFiles } = JSON.parse(cached)
+          applySkillData(cachedSkill, cachedWallet, cachedExample, cachedExFiles)
+          setLoading(false)
+        }
+      } catch {}
+
+      // 2. Fetch fresh data from API
       try {
         const [s, w] = await Promise.all([fetchSkillById(skillId), fetchWallet()])
-        setSkill(s)
-        setBalance(Number(w.credits))
-        const defaults: Record<string, any> = {}
-        const props = s.input_schema?.properties as Record<string, any> || {}
-        for (const [key, prop] of Object.entries(props)) {
-          if (prop.default != null) defaults[key] = prop.default
-        }
-        setValues(defaults)
-
-        // Detect device: formats (user triggers collection manually)
-        setDeviceFormats(getDeviceFormats(s.input_schema as any))
-
+        let ex = null
+        let exFiles: any[] = []
         if (s.example_call_id) {
           try {
-            const [ex, exFiles] = await Promise.all([
+            const [fetchedEx, fetchedExFiles] = await Promise.all([
               fetchSkillExample(skillId),
               fetchSkillExampleFiles(skillId),
             ])
-            setExample(ex)
-            setExampleFiles(exFiles)
+            ex = fetchedEx
+            exFiles = fetchedExFiles
           } catch {}
         }
+
+        applySkillData(s, w, ex, exFiles)
+
+        // 3. Save to cache
+        storage.setStringAsync(cacheKey, JSON.stringify({
+          skill: s, wallet: w, example: ex, exampleFiles: exFiles,
+        })).catch(() => {})
       } catch (err: any) {
-        Alert.alert(t.errorTitle, err.message || t.failedToLoad)
+        // Only show error if we have no cached data
+        if (!skill) {
+          Alert.alert(t.errorTitle, err.message || t.failedToLoad)
+        }
       } finally {
         setLoading(false)
       }
     })()
   }, [skillId])
+
+  // Auto-collect trigger from quick action
+  useEffect(() => {
+    if (shouldAutoCollect && skill && !collecting && Object.keys(deviceData).length === 0) {
+      setShouldAutoCollect(false)
+      handleCollectDeviceData()
+    }
+  }, [shouldAutoCollect, skill, collecting])
 
   const handleCollectDeviceData = useCallback(async () => {
     if (!skill || collecting) return
@@ -85,7 +132,37 @@ export default function SkillDetailScreen({ route, navigation }: any) {
     setDeviceData(data)
     setValues(prev => ({ ...prev, ...data }))
     setCollecting(false)
-  }, [skill, collecting, deviceFormats])
+
+    // Check which fields got empty data — likely permission denied
+    const properties = skill.input_schema?.properties as Record<string, any> || {}
+    const emptyFields: string[] = []
+    for (const [key, prop] of Object.entries(properties)) {
+      if (!prop.format?.startsWith('device:')) continue
+      const val = data[key]
+      const isEmpty = val === null || val === undefined ||
+        (Array.isArray(val) && val.length === 0) ||
+        (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length === 0) ||
+        val === ''
+      // Skip fields that are normally empty (clipboard, notifications, etc.)
+      const alwaysOptional = ['device:clipboard', 'device:notifications', 'device:media_playing', 'device:call_log', 'device:sms']
+      if (isEmpty && !alwaysOptional.includes(prop.format)) {
+        emptyFields.push(prop.title || key)
+      }
+    }
+
+    if (emptyFields.length > 0) {
+      Alert.alert(
+        lang === 'zh' ? '部分数据未采集' : 'Some data not collected',
+        (lang === 'zh'
+          ? `以下数据未能采集（可能需要开启权限）：\n\n${emptyFields.join('\n')}\n\n请到手机 设置 → 应用管理 → AgentCab → 权限 中开启相应权限。`
+          : `The following data could not be collected (permissions may be needed):\n\n${emptyFields.join('\n')}\n\nGo to Settings → Apps → AgentCab → Permissions to enable.`),
+        [
+          { text: lang === 'zh' ? '去设置' : 'Open Settings', onPress: () => Linking.openSettings() },
+          { text: 'OK' },
+        ],
+      )
+    }
+  }, [skill, collecting, deviceFormats, lang])
 
   const handleFilePicked = useCallback((fieldKey: string, files: PickedFile[]) => {
     setPickedFiles(prev => ({ ...prev, [fieldKey]: files }))
@@ -170,9 +247,22 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
   return (
     <View style={st.container}>
-      {/* Header: name + meta (always visible) */}
+      {/* Header: name + pin + meta */}
       <View style={st.header}>
-        <Text style={st.name} numberOfLines={2}>{skill.name}</Text>
+        <View style={st.nameRow}>
+          <Text style={[st.name, { flex: 1 }]} numberOfLines={2}>{skill.name}</Text>
+          <TouchableOpacity
+            style={[st.pinBtn, isPinned(skillId) && st.pinBtnActive]}
+            onPress={() => {
+              if (isPinned(skillId)) unpin(skillId)
+              else pin({ id: skillId, name: skill.name })
+            }}
+            activeOpacity={0.6}>
+            <Text style={[st.pinIcon, isPinned(skillId) && st.pinIconActive]}>
+              {isPinned(skillId) ? '★' : '☆'}
+            </Text>
+          </TouchableOpacity>
+        </View>
         <View style={st.metaRow}>
           {skill.category ? (
             <View style={st.chip}><Text style={st.chipText}>{skill.category.toUpperCase()}</Text></View>
@@ -393,7 +483,12 @@ const st = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(37, 99, 235, 0.06)',
   },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   name: { fontSize: 20, fontWeight: fontWeight.bold, color: colors.ink950, letterSpacing: -0.5 },
+  pinBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
+  pinBtnActive: { backgroundColor: '#fffbeb' },
+  pinIcon: { fontSize: 18, color: '#94a3b8' },
+  pinIconActive: { color: '#f59e0b' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: 'rgba(37,99,235,0.2)' },
   chipText: { fontSize: 10, fontWeight: fontWeight.bold, color: '#2563eb', letterSpacing: 0.5 },

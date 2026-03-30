@@ -14,6 +14,7 @@ import {
 import { colors, spacing, fontSize } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchWallet, fetchTransactions, createZPayOrder, checkZPayOrder } from '../services/api'
+import { storage } from '../services/storage'
 
 const RECHARGE_AMOUNTS = [10, 30, 50, 100]
 
@@ -32,6 +33,9 @@ export default function WalletScreen() {
       const [w, t] = await Promise.all([fetchWallet(), fetchTransactions(1, 20)])
       setWallet(w)
       setTransactions(t.items)
+      // Save to cache
+      storage.setStringAsync('wallet_data', JSON.stringify(w)).catch(() => {})
+      storage.setStringAsync('wallet_transactions', JSON.stringify(t.items)).catch(() => {})
     } catch {
       // ignore
     } finally {
@@ -40,7 +44,21 @@ export default function WalletScreen() {
   }, [])
 
   useEffect(() => {
-    load()
+    // 1. Load from cache first
+    ;(async () => {
+      try {
+        const [cachedWallet, cachedTx] = await Promise.all([
+          storage.getStringAsync('wallet_data'),
+          storage.getStringAsync('wallet_transactions'),
+        ])
+        if (cachedWallet) setWallet(JSON.parse(cachedWallet))
+        if (cachedTx) setTransactions(JSON.parse(cachedTx))
+        if (cachedWallet) setLoading(false)
+      } catch {}
+
+      // 2. Then fetch fresh data
+      await load()
+    })()
   }, [load])
 
   const onRefresh = async () => {

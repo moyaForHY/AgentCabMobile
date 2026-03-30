@@ -8,6 +8,9 @@ import {
   RefreshControl,
   Animated,
   Easing,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, gradients, radii, spacing, fontSize, fontWeight } from '../utils/theme'
@@ -15,6 +18,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { fetchWallet, fetchSkills, fetchCalls, type Skill } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
+import { usePinnedApis } from '../hooks/usePinnedApis'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -53,7 +57,11 @@ function PulseDot() {
 // ─── Home Screen ─────────────────────────────────────────────
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const { pinned, rename, unpin } = usePinnedApis()
+  const [showRenameModal, setShowRenameModal] = useState(false)
+  const [renamingApi, setRenamingApi] = useState<any>(null)
+  const [renameText, setRenameText] = useState('')
 
   const walletFetcher = useCallback(() => fetchWallet(), [])
   const skillsFetcher = useCallback(async () => {
@@ -118,6 +126,44 @@ export default function HomeScreen({ navigation }: any) {
             <View style={styles.decoCircle2} />
           </LinearGradient>
         </TouchableOpacity>
+
+        {/* Pinned APIs — Shortcuts style */}
+        {pinned.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷操作' : 'Quick Actions'}</Text>
+            <View style={styles.pinnedGrid}>
+              {pinned.map((api, i) => {
+                const colors = [
+                  ['#3b82f6', '#2563eb'], ['#f97316', '#ea580c'], ['#8b5cf6', '#7c3aed'],
+                  ['#10b981', '#059669'], ['#ec4899', '#db2777'], ['#06b6d4', '#0891b2'],
+                  ['#f59e0b', '#d97706'], ['#ef4444', '#dc2626'],
+                ]
+                const [c1, c2] = colors[i % colors.length]
+                return (
+                  <TouchableOpacity
+                    key={api.id}
+                    style={styles.pinnedCard}
+                    onPress={() => navigation.navigate('SkillDetail', { skillId: api.id, autoUse: true })}
+                    onLongPress={() => {
+                      setRenamingApi(api)
+                      setRenameText(api.customName || api.name)
+                      setShowRenameModal(true)
+                    }}
+                    activeOpacity={0.8}>
+                    <LinearGradient
+                      colors={[c1, c2]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.pinnedGradient}>
+                      <Text style={styles.pinnedIcon}>▶</Text>
+                      <Text style={styles.pinnedName} numberOfLines={2}>{api.customName || api.name}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Recent Calls */}
         {recentCalls.length > 0 && (
@@ -206,6 +252,44 @@ export default function HomeScreen({ navigation }: any) {
 
         <View style={{ height: spacing.xl }} />
       </ScrollView>
+
+      {/* Rename / Unpin Modal */}
+      <Modal visible={showRenameModal} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowRenameModal(false)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{renamingApi?.customName || renamingApi?.name}</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              autoFocus
+              selectTextOnFocus
+              placeholder={lang === 'zh' ? '输入新名称' : 'Enter new name'}
+              placeholderTextColor="#94a3b8"
+            />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity
+                style={styles.modalBtnCancel}
+                onPress={() => setShowRenameModal(false)}>
+                <Text style={styles.modalBtnCancelText}>{lang === 'zh' ? '取消' : 'Cancel'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnPrimary}
+                onPress={() => {
+                  if (renameText.trim()) rename(renamingApi?.id, renameText.trim())
+                  setShowRenameModal(false)
+                }}>
+                <Text style={styles.modalBtnPrimaryText}>{lang === 'zh' ? '保存' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              style={styles.modalUnpin}
+              onPress={() => { unpin(renamingApi?.id); setShowRenameModal(false) }}>
+              <Text style={styles.modalUnpinText}>{lang === 'zh' ? '移除快捷方式' : 'Remove shortcut'}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   )
 }
@@ -320,6 +404,67 @@ const styles = StyleSheet.create({
     color: colors.ink950,
     letterSpacing: -0.3,
   },
+  // Pinned — iOS Shortcuts style
+  pinnedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 10,
+  },
+  pinnedCard: {
+    width: '48%' as any,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  pinnedGradient: {
+    padding: 16,
+    minHeight: 80,
+    justifyContent: 'flex-end',
+  },
+  pinnedIcon: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 8,
+  },
+  pinnedName: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: '#fff',
+    lineHeight: 18,
+  },
+
+  // Rename modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32,
+  },
+  modalCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 20,
+  },
+  modalTitle: {
+    fontSize: 16, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 14,
+  },
+  modalInput: {
+    backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15,
+    color: colors.ink950, borderWidth: 1, borderColor: 'rgba(37,99,235,0.1)', marginBottom: 16,
+  },
+  modalBtns: {
+    flexDirection: 'row', gap: 10,
+  },
+  modalBtnCancel: {
+    flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  modalBtnCancelText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink700 },
+  modalUnpin: {
+    alignItems: 'center', marginTop: 14,
+  },
+  modalUnpinText: { fontSize: 13, color: '#dc2626' },
+  modalBtnPrimary: {
+    flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center',
+    backgroundColor: '#2563eb',
+  },
+  modalBtnPrimaryText: { fontSize: 14, fontWeight: fontWeight.bold, color: '#fff' },
+
   seeAll: {
     fontSize: 13,
     color: colors.primary,

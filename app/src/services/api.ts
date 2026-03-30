@@ -111,7 +111,8 @@ export type Skill = {
 export type UserProfile = {
   id: string
   name: string
-  email: string
+  email?: string
+  phone?: string
   role: 'caller' | 'provider' | 'admin'
   status: 'active' | 'suspended'
   email_verified: boolean
@@ -123,8 +124,10 @@ export type UserProfile = {
 // Auth APIs
 export async function register(payload: {
   name: string
-  email: string
-  password: string
+  email?: string
+  password?: string
+  phone?: string
+  sms_code?: string
 }) {
   const { data } = await api.post('/auth/register', { ...payload, role: 'caller' })
   return data.data as {
@@ -134,7 +137,12 @@ export async function register(payload: {
   }
 }
 
-export async function login(payload: { email: string; password: string }) {
+export async function login(payload: {
+  email?: string
+  password?: string
+  phone?: string
+  sms_code?: string
+}) {
   const { data } = await api.post('/auth/login', payload)
   return data.data as {
     user: UserProfile

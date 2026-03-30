@@ -12,6 +12,7 @@ import {
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchCall } from '../services/api'
+import { storage } from '../services/storage'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
 import { executeActions, type Action } from '../services/actionExecutor'
 import DownloadButton from '../components/DownloadButton'
@@ -23,10 +24,23 @@ export default function TaskResultScreen({ route }: any) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const cacheKey = `task_result_${taskId}`
     ;(async () => {
+      // 1. Load from cache first
+      try {
+        const cached = await storage.getStringAsync(cacheKey)
+        if (cached) {
+          setCall(JSON.parse(cached))
+          setLoading(false)
+        }
+      } catch {}
+
+      // 2. Fetch fresh data from API
       try {
         const data = await fetchCall(taskId)
         setCall(data)
+        // 3. Save to cache
+        storage.setStringAsync(cacheKey, JSON.stringify(data)).catch(() => {})
       } catch {}
       setLoading(false)
     })()

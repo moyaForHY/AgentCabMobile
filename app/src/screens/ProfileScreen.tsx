@@ -116,8 +116,18 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={s.card}>
         <InfoRow label={t.name} value={user?.name || ''} />
         <View style={s.divider} />
-        <InfoRow label={t.email} value={user?.email || ''} />
-        <View style={s.divider} />
+        {user?.email ? (
+          <>
+            <InfoRow label={t.email} value={user.email} />
+            <View style={s.divider} />
+          </>
+        ) : null}
+        {user?.phone ? (
+          <>
+            <InfoRow label={lang === 'zh' ? '手机号' : 'Phone'} value={user.phone} />
+            <View style={s.divider} />
+          </>
+        ) : null}
         <InfoRow label={t.role} value={user?.role || 'caller'} />
         <View style={s.divider} />
         <InfoRow label={t.joined} value={memberSince} />
@@ -226,18 +236,20 @@ export default function ProfileScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* ── Security ── */}
-      <View style={s.card}>
-        <Text style={s.sectionLabel}>{t.security}</Text>
-        <View style={s.securityRow}>
-          <Text style={s.securityLabel}>{t.email}</Text>
-          <View style={[s.verifyBadge, user?.email_verified && s.verifyBadgeOk]}>
-            <Text style={[s.verifyText, user?.email_verified && s.verifyTextOk]}>
-              {user?.email_verified ? t.emailVerified : t.emailNotVerified}
-            </Text>
+      {/* ── Security (only for email users) ── */}
+      {user?.email ? (
+        <View style={s.card}>
+          <Text style={s.sectionLabel}>{t.security}</Text>
+          <View style={s.securityRow}>
+            <Text style={s.securityLabel}>{t.email}</Text>
+            <View style={[s.verifyBadge, user?.email_verified && s.verifyBadgeOk]}>
+              <Text style={[s.verifyText, user?.email_verified && s.verifyTextOk]}>
+                {user?.email_verified ? t.emailVerified : t.emailNotVerified}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
+      ) : null}
 
       {/* ── Language ── */}
       <View style={s.card}>

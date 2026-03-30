@@ -8,8 +8,8 @@ type AuthState = {
   user: UserProfile | null
   isLoading: boolean
   isLoggedIn: boolean
-  login: (email: string, password: string) => Promise<void>
-  register: (name: string, email: string, password: string) => Promise<void>
+  login: (email: string, password: string, phoneAuth?: { phone: string; password: string }) => Promise<void>
+  register: (name: string, email: string, password: string, phoneAuth?: { phone: string; sms_code: string }) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -61,15 +61,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setOnAuthExpired(null)
   }, [logout])
 
-  const login = useCallback(async (email: string, password: string) => {
-    const result = await apiLogin({ email, password })
+  const login = useCallback(async (email: string, password: string, phoneAuth?: { phone: string; password: string }) => {
+    const payload = phoneAuth
+      ? { phone: phoneAuth.phone, password: phoneAuth.password }
+      : { email, password }
+    const result = await apiLogin(payload)
     await setAccessToken(result.auth.access_token)
     setUser(result.user)
     await storage.setStringAsync(USER_CACHE_KEY, JSON.stringify(result.user))
   }, [])
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
-    const result = await apiRegister({ name, email, password })
+  const register = useCallback(async (name: string, email: string, password: string, phoneAuth?: { phone: string; sms_code: string }) => {
+    const payload = phoneAuth
+      ? { name, phone: phoneAuth.phone, sms_code: phoneAuth.sms_code, password }
+      : { name, email, password }
+    const result = await apiRegister(payload)
     await setAccessToken(result.auth.access_token)
     setUser(result.user)
     await storage.setStringAsync(USER_CACHE_KEY, JSON.stringify(result.user))
