@@ -6,9 +6,9 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Linking,
 } from 'react-native'
+import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
@@ -19,6 +19,8 @@ import { taskManager } from '../services/taskManager'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
 import DynamicForm from '../components/DynamicForm'
 import { usePinnedApis } from '../hooks/usePinnedApis'
+import { useKeyboard } from '../hooks/useKeyboard'
+import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 import type { PickedFile } from '../services/deviceCapabilities'
 
 type PageTab = 'use' | 'example'
@@ -41,6 +43,12 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [deviceFormats, setDeviceFormats] = useState<string[]>([])
   const [fieldStatuses, setFieldStatuses] = useState<Record<string, 'idle' | 'collecting' | 'done' | 'failed'>>({})
   const [shouldAutoCollect, setShouldAutoCollect] = useState(false)
+  const { height: kbHeight } = useKeyboard()
+  const scrollRef = React.useRef<ScrollView>(null)
+
+  useEffect(() => {
+    if (kbHeight > 0) setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100)
+  }, [kbHeight])
 
   useEffect(() => {
     const cacheKey = `skill_detail_${skillId}`
@@ -102,7 +110,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       } catch (err: any) {
         // Only show error if we have no cached data
         if (!skill) {
-          Alert.alert(t.errorTitle, err.message || t.failedToLoad)
+          showModal(t.errorTitle, err.message || t.failedToLoad)
         }
       } finally {
         setLoading(false)
@@ -151,7 +159,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
     }
 
     if (emptyFields.length > 0) {
-      Alert.alert(
+      showModal(
         lang === 'zh' ? '部分数据未采集' : 'Some data not collected',
         (lang === 'zh'
           ? `以下数据未能采集（可能需要开启权限）：\n\n${emptyFields.join('\n')}\n\n请到手机 设置 → 应用管理 → AgentCab → 权限 中开启相应权限。`
@@ -173,7 +181,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
     // Check device data collected
     if (deviceFormats.length > 0 && Object.keys(deviceData).length === 0) {
-      Alert.alert(t.missing, lang === 'zh' ? '请先点击"采集设备数据"' : 'Please collect device data first')
+      showModal(t.missing, lang === 'zh' ? '请先点击"采集设备数据"' : 'Please collect device data first')
       return
     }
 
@@ -182,17 +190,18 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       const prop = (skill.input_schema?.properties as any)?.[key]
       // Skip device:* fields — they're handled by collector
       if (prop?.format?.startsWith('device:')) continue
-      const isFileField = key === 'files' || key === 'file'
+      const itemFormat = prop?.items?.format || ''
+      const isFileField = prop?.format === 'file_id' || itemFormat === 'file_id' || key === 'files' || key === 'file' || key === 'file_ids' || key === 'file_id'
       if (isFileField) {
-        if (!pickedFiles[key]?.length) { Alert.alert(t.missing, `"${key}"`); return }
+        if (!pickedFiles[key]?.length) { showModal(t.missing, `"${prop?.title || key}"`); return }
       } else if (values[key] == null || values[key] === '') {
-        Alert.alert(t.missing, `"${prop?.title || key}"`); return
+        showModal(t.missing, `"${prop?.title || key}"`); return
       }
     }
     if (balance !== null && balance < skill.price_credits) {
-      Alert.alert(t.insufficientCredits, `${skill.price_credits}+, ${balance}.`); return
+      showModal(t.insufficientCredits, `${skill.price_credits}+, ${balance}.`); return
     }
-    Alert.alert(t.callApi, `${skill.name}\n${t.cost}: ${skill.price_credits}${skill.max_price_credits ? `–${skill.max_price_credits}` : ''} ${t.credits}`, [
+    showModal(t.callApi, `${skill.name}\n${t.cost}: ${skill.price_credits}${skill.max_price_credits ? `–${skill.max_price_credits}` : ''} ${t.credits}`, [
       { text: t.cancel, style: 'cancel' },
       { text: t.confirm, onPress: doSubmit },
     ])
@@ -212,18 +221,24 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       const input: Record<string, any> = { ...values }
       if (fileIds.length > 0) {
         const fk = Object.keys(pickedFiles).find(k => pickedFiles[k]?.length > 0)
-        if (fk) input[fk] = fileIds.length === 1 ? fileIds[0] : fileIds
+        if (fk) {
+          const fieldSchema = (skill.input_schema?.properties as any)?.[fk]
+          const isArray = fieldSchema?.type === 'array'
+          input[fk] = isArray ? fileIds : (fileIds.length === 1 ? fileIds[0] : fileIds)
+        }
       }
       const result = await callSkill(skill.id, { input, max_cost: skill.max_price_credits || undefined })
       taskManager.addTask(result.call_id, skill, input, result.credits_cost)
+      events.emit(EVENT_CALL_COMPLETED)
+      events.emit(EVENT_WALLET_CHANGED)
       if (result.status === 'completed' || result.status === 'success') {
         taskManager.completeTask(result.call_id, result.output, result.actual_cost ?? undefined)
-        Alert.alert(t.doneLabel, `${t.cost}: ${result.actual_cost ?? result.credits_cost} ${t.credits}`, [{ text: 'OK', onPress: () => navigation.goBack() }])
+        showModal(t.doneLabel, `${t.cost}: ${result.actual_cost ?? result.credits_cost} ${t.credits}`, [{ text: 'OK', onPress: () => navigation.goBack() }])
       } else {
-        Alert.alert(t.submitted, t.checkTasksTab, [{ text: 'OK', onPress: () => navigation.goBack() }])
+        showModal(t.submitted, t.checkTasksTab, [{ text: 'OK', onPress: () => navigation.goBack() }])
       }
     } catch (err: any) {
-      Alert.alert(t.errorTitle, err.message || t.failed)
+      showModal(t.errorTitle, err.message || t.failed)
     } finally { setSubmitting(false) }
   }
 
@@ -289,7 +304,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       )}
 
       {/* Content */}
-      <ScrollView style={st.scroll} contentContainerStyle={st.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} style={st.scroll} contentContainerStyle={[st.scrollContent, { paddingBottom: kbHeight > 0 ? kbHeight : 16 }]} showsVerticalScrollIndicator={false}>
         {activeTab === 'use' ? (
           <>
             {/* Description */}

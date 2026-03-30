@@ -5,6 +5,7 @@ import { AuthProvider } from './src/hooks/useAuth'
 import { I18nProvider } from './src/i18n'
 import AppNavigator from './src/navigation/AppNavigator'
 import ErrorBoundary from './src/components/ErrorBoundary'
+import { AppModalRoot } from './src/components/AppModal'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <I18nProvider>
           <AuthProvider>
             <AppNavigator />
+            <AppModalRoot />
           </AuthProvider>
         </I18nProvider>
       </SafeAreaProvider>

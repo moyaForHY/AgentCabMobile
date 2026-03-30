@@ -1,47 +1,51 @@
 import { useState, useEffect, useCallback } from 'react'
 import { storage } from '../services/storage'
+import { events, EVENT_PINNED_CHANGED } from '../services/events'
 
 const PINNED_KEY = 'pinned_apis'
 
 export type PinnedApi = {
   id: string
-  name: string       // original API name
-  customName?: string // user-defined alias
+  name: string
+  customName?: string
+}
+
+async function load(): Promise<PinnedApi[]> {
+  try {
+    const raw = await storage.getStringAsync(PINNED_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+async function save(items: PinnedApi[]) {
+  await storage.setStringAsync(PINNED_KEY, JSON.stringify(items))
+  events.emit(EVENT_PINNED_CHANGED)
 }
 
 export function usePinnedApis() {
   const [pinned, setPinned] = useState<PinnedApi[]>([])
 
   useEffect(() => {
-    storage.getStringAsync(PINNED_KEY).then(raw => {
-      if (raw) {
-        try { setPinned(JSON.parse(raw)) } catch {}
-      }
-    })
-  }, [])
-
-  const save = useCallback(async (items: PinnedApi[]) => {
-    setPinned(items)
-    await storage.setStringAsync(PINNED_KEY, JSON.stringify(items))
+    load().then(setPinned)
+    return events.on(EVENT_PINNED_CHANGED, () => { load().then(setPinned) })
   }, [])
 
   const pin = useCallback(async (api: PinnedApi) => {
-    const updated = [...pinned.filter(p => p.id !== api.id), api]
-    await save(updated)
-  }, [pinned, save])
+    const current = await load()
+    await save([...current.filter(p => p.id !== api.id), api])
+  }, [])
 
   const unpin = useCallback(async (id: string) => {
-    await save(pinned.filter(p => p.id !== id))
-  }, [pinned, save])
+    const current = await load()
+    await save(current.filter(p => p.id !== id))
+  }, [])
 
-  const isPinned = useCallback((id: string) => {
-    return pinned.some(p => p.id === id)
-  }, [pinned])
+  const isPinned = useCallback((id: string) => pinned.some(p => p.id === id), [pinned])
 
   const rename = useCallback(async (id: string, customName: string) => {
-    const updated = pinned.map(p => p.id === id ? { ...p, customName } : p)
-    await save(updated)
-  }, [pinned, save])
+    const current = await load()
+    await save(current.map(p => p.id === id ? { ...p, customName } : p))
+  }, [])
 
   return { pinned, pin, unpin, isPinned, rename }
 }

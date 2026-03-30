@@ -94,11 +94,15 @@ function FormField({
   const label = prop.title || fieldKey
   const hint = prop.description || ''
   const format = prop.format || ''
-  const isFile = format === 'file' || format === 'image' || format === 'video' || format === 'audio' || format === 'document' || fieldKey === 'files' || fieldKey === 'file'
-  const detectedFormat = format || (fieldKey.includes('image') || fieldKey.includes('photo') ? 'image' : fieldKey.includes('video') ? 'video' : 'file')
+  const itemFormat = prop.items?.format || ''
+  const isFile = format === 'file' || format === 'image' || format === 'video' || format === 'audio' || format === 'document' || format === 'file_id' || itemFormat === 'file_id' || fieldKey === 'files' || fieldKey === 'file' || fieldKey === 'file_ids' || fieldKey === 'file_id'
+  const detectedFormat = format || itemFormat || (fieldKey.includes('image') || fieldKey.includes('photo') ? 'image' : fieldKey.includes('video') ? 'video' : 'file')
 
   // File picker — auto-detects type from schema format
   if (isFile) {
+    const maxFiles = prop.type === 'array' ? (prop.maxItems || 10) : 1
+    const atLimit = pickedFiles.length >= maxFiles
+
     const pickerButtons: { label: string; format: string }[] = []
     if (detectedFormat === 'image') {
       pickerButtons.push({ label: '📷 Photo', format: 'image' })
@@ -114,33 +118,37 @@ function FormField({
       <View style={styles.field}>
         <Text style={styles.label}>
           {label} {isRequired && <Text style={styles.required}>*</Text>}
+          {maxFiles > 1 && <Text style={styles.hint}> ({pickedFiles.length}/{maxFiles})</Text>}
         </Text>
         {hint ? <Text style={styles.hint}>{hint}</Text> : null}
 
         <View style={styles.fileRow}>
           {pickedFiles.map((f, i) => (
-            <View key={i} style={styles.fileBadge}>
+            <TouchableOpacity key={i} style={styles.fileBadge} onPress={() => onFilePicked(pickedFiles.filter((_, j) => j !== i))} activeOpacity={0.6}>
               {f.mimeType?.startsWith('image/') ? (
                 <Image source={{ uri: f.uri }} style={styles.fileThumb} />
               ) : null}
               <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.fileButtons}>
-          {pickerButtons.map(btn => (
-            <TouchableOpacity
-              key={btn.format}
-              style={styles.pickButton}
-              onPress={async () => {
-                const file = await pickByFormat(btn.format)
-                if (file) onFilePicked([...pickedFiles, file])
-              }}>
-              <Text style={styles.pickButtonText}>{btn.label}</Text>
+              <Text style={styles.fileRemove}>✕</Text>
             </TouchableOpacity>
           ))}
         </View>
+
+        {!atLimit && (
+          <View style={styles.fileButtons}>
+            {pickerButtons.map(btn => (
+              <TouchableOpacity
+                key={btn.format}
+                style={styles.pickButton}
+                onPress={async () => {
+                  const file = await pickByFormat(btn.format)
+                  if (file) onFilePicked([...pickedFiles, file])
+                }}>
+                <Text style={styles.pickButtonText}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     )
   }
@@ -204,6 +212,8 @@ function FormField({
             onChange(isNaN(num) ? undefined : num)
           }}
           keyboardType="numeric"
+          cursorColor={colors.primary}
+          selectionColor={colors.primaryGlow}
           placeholder={
             prop.default != null
               ? `Default: ${prop.default}`
@@ -231,6 +241,8 @@ function FormField({
         style={[styles.input, isMultiline && styles.multilineInput]}
         value={value != null ? String(value) : ''}
         onChangeText={onChange}
+        cursorColor={colors.primary}
+        selectionColor={colors.primaryGlow}
         placeholder={prop.default != null ? `Default: ${prop.default}` : ''}
         placeholderTextColor={colors.textMuted}
         multiline={isMultiline}
@@ -327,7 +339,13 @@ const styles = StyleSheet.create({
   fileName: {
     fontSize: fontSize.xs,
     color: colors.text,
-    maxWidth: 100,
+    maxWidth: 80,
+  },
+  fileRemove: {
+    fontSize: 12,
+    color: colors.error,
+    marginLeft: 4,
+    fontWeight: '600',
   },
   fileButtons: {
     flexDirection: 'row',

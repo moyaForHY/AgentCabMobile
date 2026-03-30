@@ -5,14 +5,13 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
   ActivityIndicator,
   ScrollView,
   Animated,
   Dimensions,
 } from 'react-native'
+import { useKeyboard } from '../hooks/useKeyboard'
 import LinearGradient from 'react-native-linear-gradient'
 import { useI18n } from '../i18n'
 import { useAuth } from '../hooks/useAuth'
@@ -31,6 +30,7 @@ function isPhone(input: string): boolean {
 export default function LoginScreen() {
   const { login, register } = useAuth()
   const { t, lang } = useI18n()
+  const { height: kbHeight } = useKeyboard()
   const [mode, setMode] = useState<Mode>('login')
   const [step, setStep] = useState<Step>('form')
   const [name, setName] = useState('')
@@ -166,11 +166,9 @@ export default function LoginScreen() {
 
   return (
     <LinearGradient colors={['#ffffff', '#f0f7ff', '#f8fafc']} style={s.container}>
-      <KeyboardAvoidingView
-        style={s.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={s.flex}>
         <ScrollView
-          contentContainerStyle={s.scrollContent}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: kbHeight > 0 ? kbHeight : 32 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
 
@@ -276,7 +274,7 @@ export default function LoginScreen() {
           </Animated.View>
 
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </LinearGradient>
   )
 }

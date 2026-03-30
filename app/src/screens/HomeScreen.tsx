@@ -19,6 +19,7 @@ import { useI18n } from '../i18n'
 import { fetchWallet, fetchSkills, fetchCalls, type Skill } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { usePinnedApis } from '../hooks/usePinnedApis'
+import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -81,6 +82,12 @@ export default function HomeScreen({ navigation }: any) {
   const onRefresh = async () => {
     await Promise.all([refreshWallet(), refreshSkills(), refreshCalls()])
   }
+
+  useEffect(() => {
+    const unsub1 = events.on(EVENT_CALL_COMPLETED, () => { refreshCalls(); refreshWallet() })
+    const unsub2 = events.on(EVENT_WALLET_CHANGED, () => { refreshWallet() })
+    return () => { unsub1(); unsub2() }
+  }, [])
 
   return (
     <View style={styles.container}>
