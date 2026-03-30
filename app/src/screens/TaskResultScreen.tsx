@@ -111,34 +111,40 @@ export default function TaskResultScreen({ route }: any) {
 
       {/* Actions — only if backend allows */}
       {actionsAllowed && output?.actions && Array.isArray(output.actions) && output.actions.length > 0 && (
-        <ActionsSection actions={output.actions} t={t} />
+        <ActionsSection actions={output.actions} t={t} taskId={taskId} />
       )}
 
       {/* Output Files */}
       {outputFiles.length > 0 && (
         <View style={s.card}>
           <Text style={s.sectionTitle}>{t.outputFiles}</Text>
-          {outputFiles.map((file: any) => (
-            <View key={file.id} style={s.fileRow}>
-              <View style={s.fileInfo}>
-                <Text style={s.fileName} numberOfLines={1}>{file.filename || file.original_filename}</Text>
-                <Text style={s.fileMeta}>{file.mime_type}</Text>
+          {outputFiles.map((file: any, idx: number) => {
+            const orig = file.filename || file.original_filename || 'file'
+            const ext = orig.includes('.') ? '.' + orig.split('.').pop() : ''
+            const shortId = (call.id || '').slice(0, 8)
+            const downloadName = `${shortId}_${idx}${ext}`
+            return (
+              <View key={file.id} style={s.fileRow}>
+                <View style={s.fileInfo}>
+                  <Text style={s.fileName} numberOfLines={1}>{downloadName}</Text>
+                  <Text style={s.fileMeta}>{file.mime_type}</Text>
+                </View>
+                <DownloadButton
+                  url={`https://www.agentcab.ai/v1/files/${file.id}`}
+                  filename={downloadName}
+                  mimeType={file.mime_type}
+                />
               </View>
-              <DownloadButton
-                url={`https://www.agentcab.ai/v1/files/${file.id}`}
-                filename={file.filename || file.original_filename}
-                mimeType={file.mime_type}
-              />
-            </View>
-          ))}
+            )
+          })}
         </View>
       )}
 
       {/* Output Data */}
       {output && (
-        <View style={s.card}>
-          <View style={s.sectionHeader}>
-            <Text style={s.sectionTitle}>{t.output}</Text>
+        <CollapsibleSection
+          title={t.output}
+          right={
             <View style={s.actionRow}>
               <TouchableOpacity
                 onPress={() => { writeClipboard(typeof output === 'string' ? output : JSON.stringify(output, null, 2)); Alert.alert(t.copied) }}
@@ -151,13 +157,13 @@ export default function TaskResultScreen({ route }: any) {
                 <Text style={s.actionText}>Share</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          }>
           <View style={s.codeBlock}>
             <Text style={s.codeText}>
               {typeof output === 'string' ? output : JSON.stringify(output, null, 2)}
             </Text>
           </View>
-        </View>
+        </CollapsibleSection>
       )}
 
       {/* Input Files */}
@@ -177,14 +183,13 @@ export default function TaskResultScreen({ route }: any) {
 
       {/* Input Data */}
       {input && (
-        <View style={s.card}>
-          <Text style={s.sectionTitle}>{t.input}</Text>
+        <CollapsibleSection title={t.input}>
           <View style={s.codeBlock}>
             <Text style={s.codeText}>
               {typeof input === 'string' ? input : JSON.stringify(input, null, 2)}
             </Text>
           </View>
-        </View>
+        </CollapsibleSection>
       )}
 
       <View style={{ height: 32 }} />
@@ -192,9 +197,17 @@ export default function TaskResultScreen({ route }: any) {
   )
 }
 
-function ActionsSection({ actions, t }: { actions: Action[]; t: any }) {
+function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; taskId: string }) {
   const [executing, setExecuting] = useState(false)
   const [executed, setExecuted] = useState(false)
+
+  const storageKey = `actions_executed_${taskId}`
+
+  useEffect(() => {
+    storage.getStringAsync(storageKey).then(v => {
+      if (v === '1') setExecuted(true)
+    }).catch(() => {})
+  }, [storageKey])
 
   const handleExecute = async () => {
     setExecuting(true)
@@ -207,6 +220,7 @@ function ActionsSection({ actions, t }: { actions: Action[]; t: any }) {
         Alert.alert('Done', `${results.length - failed.length} succeeded, ${failed.length} failed`)
       }
       setExecuted(true)
+      storage.setStringAsync(storageKey, '1').catch(() => {})
     } catch (err: any) {
       Alert.alert(t.errorTitle, err.message)
     } finally {
@@ -236,6 +250,24 @@ function ActionsSection({ actions, t }: { actions: Action[]; t: any }) {
           <Text style={s.executeBtnText}>{executed ? '✓ Executed' : 'Execute All'}</Text>
         )}
       </TouchableOpacity>
+    </View>
+  )
+}
+
+function CollapsibleSection({ title, right, children, defaultOpen = false }: {
+  title: string; right?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <View style={s.card}>
+      <TouchableOpacity style={s.sectionHeader} onPress={() => setOpen(!open)} activeOpacity={0.6}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={s.collapseArrow}>{open ? '▾' : '▸'}</Text>
+          <Text style={s.sectionTitleInline}>{title}</Text>
+        </View>
+        {open && right ? <View style={{ paddingTop: 14 }}>{right}</View> : null}
+      </TouchableOpacity>
+      {open && children}
     </View>
   )
 }
@@ -295,7 +327,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingRight: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
   sectionTitle: {
     fontSize: 14,
@@ -304,6 +338,17 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 10,
+  },
+  sectionTitleInline: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+  },
+  collapseArrow: {
+    fontSize: 13,
+    color: colors.ink400,
+    marginRight: 6,
+    width: 14,
   },
   actionRow: {
     flexDirection: 'row',

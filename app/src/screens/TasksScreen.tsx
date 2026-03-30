@@ -115,7 +115,14 @@ export default function TasksScreen({ navigation }: any) {
       <View style={s.cardTop}>
         <StatusIcon status={item.status} />
         <View style={s.cardInfo}>
-          <Text style={s.cardName} numberOfLines={1}>{item.skill_name || t.unnamedSkill}</Text>
+          <TouchableOpacity
+            activeOpacity={0.6}
+            onPress={(e) => {
+              e.stopPropagation?.()
+              if (item.skill_id) navigation.navigate('SkillDetail', { skillId: item.skill_id })
+            }}>
+            <Text style={[s.cardName, item.skill_id && s.cardNameLink]} numberOfLines={1}>{item.skill_name || t.unnamedSkill}</Text>
+          </TouchableOpacity>
           <Text style={s.cardId}>#{item.id.slice(0, 8)}</Text>
         </View>
         <StatusPill status={item.status} />
@@ -269,6 +276,9 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontWeight: fontWeight.semibold,
     color: colors.ink950,
+  },
+  cardNameLink: {
+    color: '#2563eb',
   },
   cardId: {
     fontSize: 11,
