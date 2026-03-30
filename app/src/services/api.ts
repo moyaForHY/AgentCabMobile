@@ -294,6 +294,46 @@ export async function checkZPayOrder(outTradeNo: string) {
   return data.data
 }
 
+// Reviews
+export type Review = {
+  id: string
+  user_id: string
+  user_name: string
+  skill_id: string
+  rating: number
+  comment?: string
+  created_at: string
+  updated_at?: string
+}
+
+export async function createReview(skillId: string, rating: number, comment?: string) {
+  const body: Record<string, any> = { rating }
+  if (comment) body.comment = comment
+  const { data } = await api.post(`/skills/${skillId}/reviews`, body)
+  return data.data as Review
+}
+
+export async function fetchReviews(skillId: string, page = 1) {
+  const { data } = await api.get(`/skills/${skillId}/reviews`, { params: { page, page_size: 5 } })
+  return data.data as { items: Review[]; total: number; page: number; page_size: number }
+}
+
+export async function fetchMyReview(skillId: string) {
+  const { data } = await api.get(`/skills/${skillId}/reviews/my`)
+  return data.data as Review | null
+}
+
+export async function updateReview(skillId: string, rating: number, comment?: string) {
+  const body: Record<string, any> = { rating }
+  if (comment) body.comment = comment
+  const { data } = await api.put(`/skills/${skillId}/reviews`, body)
+  return data.data as Review
+}
+
+export async function deleteReview(skillId: string) {
+  await api.delete(`/skills/${skillId}/reviews`)
+}
+
 // Calls history
 export async function fetchCalls(page = 1, pageSize = 20) {
   const { data } = await api.get('/calls', { params: { page, page_size: pageSize } })

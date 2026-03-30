@@ -125,6 +125,7 @@ export default function DiscoverScreen({ navigation }: any) {
           <View style={s.footerStats}>
             {item.category ? <Text style={s.tag}>{item.category}</Text> : null}
             <Text style={s.stat}>{item.call_count} {t.calls}</Text>
+            <Text style={s.stat}>{item.rating > 0 ? `★ ${item.rating.toFixed(1)}` : '☆ —'}</Text>
           </View>
           <View style={s.pricePill}>
             <Text style={s.priceText}>{item.price_credits} {t.credits}</Text>

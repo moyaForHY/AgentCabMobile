@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { colors, fontWeight as fw } from '../utils/theme'
 import TabIcon from '../components/TabIcon'
+import { navigationRef } from './navigationRef'
 
 import LoginScreen from '../screens/LoginScreen'
 import HomeScreen from '../screens/HomeScreen'
@@ -122,7 +123,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle }}>
         {isLoggedIn ? (
           <>

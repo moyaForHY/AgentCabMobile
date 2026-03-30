@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   FlatList,
   Linking,
@@ -13,6 +12,7 @@ import {
 } from 'react-native'
 import { colors, spacing, fontSize } from '../utils/theme'
 import { useI18n } from '../i18n'
+import { showModal } from '../components/AppModal'
 import { fetchWallet, fetchTransactions, createZPayOrder, checkZPayOrder } from '../services/api'
 import { storage } from '../services/storage'
 
@@ -97,7 +97,7 @@ export default function WalletScreen() {
 
       // Show confirmation dialog after opening payment
       if (opened) {
-        Alert.alert(
+        showModal(
           t.paymentTitle,
           t.paymentConfirm,
           [
@@ -107,9 +107,9 @@ export default function WalletScreen() {
                 try {
                   await checkZPayOrder(order.out_trade_no)
                   await load()
-                  Alert.alert(t.successTitle, t.paymentSuccess)
+                  showModal(t.successTitle, t.paymentSuccess)
                 } catch {
-                  Alert.alert(t.pendingTitle, t.paymentPending)
+                  showModal(t.pendingTitle, t.paymentPending)
                 }
               },
             },
@@ -118,7 +118,7 @@ export default function WalletScreen() {
         )
       }
     } catch (err: any) {
-      Alert.alert(t.errorTitle, err.message || t.failed)
+      showModal(t.errorTitle, err.message || t.failed)
     } finally {
       setRecharging(false)
     }
@@ -156,7 +156,7 @@ export default function WalletScreen() {
               ¥{amount}
             </Text>
             <Text style={[styles.amountCredits, selectedAmount === amount && styles.amountCreditsSelected]}>
-              {amount * 100} {t.credits}
+              {amount * 10} {t.credits}
             </Text>
           </TouchableOpacity>
         ))}

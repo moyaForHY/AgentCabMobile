@@ -12,12 +12,13 @@ import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, type Skill } from '../services/api'
+import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, fetchReviews, type Skill, type Review } from '../services/api'
 import DownloadButton from '../components/DownloadButton'
 import { storage } from '../services/storage'
 import { taskManager } from '../services/taskManager'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
 import DynamicForm from '../components/DynamicForm'
+import ReviewCard from '../components/ReviewCard'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
@@ -34,6 +35,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [values, setValues] = useState<Record<string, any>>({})
   const [pickedFiles, setPickedFiles] = useState<Record<string, PickedFile[]>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null)
   const [balance, setBalance] = useState<number | null>(null)
   const [example, setExample] = useState<any>(null)
   const [exampleFiles, setExampleFiles] = useState<any[]>([])
@@ -43,6 +45,8 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [deviceFormats, setDeviceFormats] = useState<string[]>([])
   const [fieldStatuses, setFieldStatuses] = useState<Record<string, 'idle' | 'collecting' | 'done' | 'failed'>>({})
   const [shouldAutoCollect, setShouldAutoCollect] = useState(false)
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviewsTotal, setReviewsTotal] = useState(0)
   const { height: kbHeight } = useKeyboard()
   const scrollRef = React.useRef<ScrollView>(null)
 
@@ -102,6 +106,13 @@ export default function SkillDetailScreen({ route, navigation }: any) {
         }
 
         applySkillData(s, w, ex, exFiles)
+
+        // Fetch reviews
+        try {
+          const rev = await fetchReviews(skillId)
+          setReviews(rev.items)
+          setReviewsTotal(rev.total)
+        } catch {}
 
         // 3. Save to cache
         storage.setStringAsync(cacheKey, JSON.stringify({
@@ -212,12 +223,19 @@ export default function SkillDetailScreen({ route, navigation }: any) {
     setSubmitting(true)
     try {
       const fileIds: string[] = []
+      const allFiles = Object.entries(pickedFiles).flatMap(([, files]) => files)
+      const totalFiles = allFiles.length
+      if (totalFiles > 0) setUploadProgress({ current: 0, total: totalFiles })
+      let uploaded = 0
       for (const [, files] of Object.entries(pickedFiles)) {
         for (const file of files) {
           const r = await uploadFile(file.uri, file.name, file.mimeType)
           fileIds.push(r.file_id)
+          uploaded++
+          setUploadProgress({ current: uploaded, total: totalFiles })
         }
       }
+      setUploadProgress(null)
       const input: Record<string, any> = { ...values }
       if (fileIds.length > 0) {
         const fk = Object.keys(pickedFiles).find(k => pickedFiles[k]?.length > 0)
@@ -229,7 +247,11 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       }
       const result = await callSkill(skill.id, { input, max_cost: skill.max_price_credits || undefined })
       taskManager.addTask(result.call_id, skill, input, result.credits_cost)
-      events.emit(EVENT_CALL_COMPLETED)
+      events.emit(EVENT_CALL_COMPLETED, {
+        call_id: result.call_id,
+        skill_name: skill.name,
+        status: result.status,
+      })
       events.emit(EVENT_WALLET_CHANGED)
       if (result.status === 'completed' || result.status === 'success') {
         taskManager.completeTask(result.call_id, result.output, result.actual_cost ?? undefined)
@@ -239,7 +261,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       }
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.failed)
-    } finally { setSubmitting(false) }
+    } finally { setSubmitting(false); setUploadProgress(null) }
   }
 
   if (loading) return <View style={st.center}><ActivityIndicator size="large" color={colors.primary} /></View>
@@ -283,6 +305,8 @@ export default function SkillDetailScreen({ route, navigation }: any) {
             <View style={st.chip}><Text style={st.chipText}>{skill.category.toUpperCase()}</Text></View>
           ) : null}
           <Text style={st.metaText}>{skill.call_count} {t.calls}</Text>
+          <Text style={st.metaText}>{skill.rating > 0 ? `★ ${skill.rating.toFixed(1)}` : '☆ —'}</Text>
+          {example?.duration_ms != null && <Text style={st.metaText}>~{(example.duration_ms / 1000).toFixed(0)}s</Text>}
           <Text style={st.priceInline}>{skill.price_credits}{skill.max_price_credits ? `–${skill.max_price_credits}` : ''} {t.credits}</Text>
         </View>
       </View>
@@ -334,6 +358,28 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               </View>
             )}
 
+            {/* Rating + Reviews */}
+            {(skill.rating > 0 || reviews.length > 0) && (
+              <View style={st.card}>
+                {skill.rating > 0 && (
+                  <View style={st.ratingRow}>
+                    <Text style={st.ratingStars}>{'★'.repeat(Math.round(skill.rating)) + '☆'.repeat(5 - Math.round(skill.rating))}</Text>
+                    <Text style={st.ratingValue}>{skill.rating.toFixed(1)}</Text>
+                    <Text style={st.ratingCount}>({reviewsTotal} {t.reviews})</Text>
+                  </View>
+                )}
+                {reviews.length > 0 && (
+                  <>
+                    <Text style={[st.sectionTitle, { paddingHorizontal: 0 }]}>{t.reviews}</Text>
+                    {reviews.map(review => (
+                      <ReviewCard key={review.id} review={review} />
+                    ))}
+                  </>
+                )}
+                {reviews.length === 0 && <Text style={st.noReviews}>{t.noReviews}</Text>}
+              </View>
+            )}
+
             {/* Device data collection */}
             {deviceFormats.length > 0 && (
               <DeviceDataCard
@@ -364,7 +410,11 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               style={[st.callBtnWrap, submitting && { opacity: 0.6 }]}
               onPress={handleSubmit} disabled={submitting} activeOpacity={0.85}>
               <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.callBtn}>
-                {submitting ? <ActivityIndicator color="#fff" /> : <Text style={st.callBtnText}>{t.callApi}</Text>}
+                {submitting
+                  ? uploadProgress
+                    ? <Text style={st.callBtnText}>Uploading {uploadProgress.current}/{uploadProgress.total}...</Text>
+                    : <><ActivityIndicator color="#fff" size="small" /><Text style={[st.callBtnText, { marginLeft: 8 }]}>Calling...</Text></>
+                  : <Text style={st.callBtnText}>{t.callApi}</Text>}
               </LinearGradient>
             </TouchableOpacity>
           </>
@@ -565,7 +615,7 @@ const st = StyleSheet.create({
   collectBtnText: { color: '#fff', fontSize: 13, fontWeight: fontWeight.bold },
   sectionTitle: { fontSize: 15, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 14 },
   callBtnWrap: { borderRadius: 12, overflow: 'hidden' },
-  callBtn: { paddingVertical: 15, alignItems: 'center', borderRadius: 12 },
+  callBtn: { paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderRadius: 12 },
   callBtnText: { fontSize: 15, fontWeight: fontWeight.bold, color: '#fff' },
 
   // Example tab
@@ -581,4 +631,11 @@ const st = StyleSheet.create({
   fileMeta: { fontSize: 11, color: colors.ink500, marginTop: 2 },
   fileDownload: { fontSize: 13, fontWeight: fontWeight.semibold, color: '#2563eb' },
   exMeta: { fontSize: 12, color: colors.ink500 },
+
+  // Reviews
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  ratingStars: { fontSize: 16, color: '#f59e0b' },
+  ratingValue: { fontSize: 16, fontWeight: fontWeight.bold, color: colors.ink950 },
+  ratingCount: { fontSize: 12, color: colors.ink500 },
+  noReviews: { fontSize: 13, color: colors.ink400, textAlign: 'center', paddingVertical: 12 },
 })

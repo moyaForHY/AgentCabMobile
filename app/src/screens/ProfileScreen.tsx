@@ -5,10 +5,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   RefreshControl,
   Clipboard,
 } from 'react-native'
+import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, fontWeight } from '../utils/theme'
 import { useAuth } from '../hooks/useAuth'
@@ -27,7 +27,7 @@ export default function ProfileScreen({ navigation }: any) {
   const walletFetcher = useCallback(() => fetchWallet(), [])
   const apisFetcher = useCallback(() => fetchMySkills(), [])
 
-  const { data: wallet, refresh: refreshWallet, refreshing: r1 } = useCachedData('profile_wallet', walletFetcher, null)
+  const { data: wallet, refresh: refreshWallet, refreshing: r1 } = useCachedData('home_wallet', walletFetcher, null)
   const { data: myApis, refresh: refreshApis, refreshing: r2 } = useCachedData<Skill[]>('profile_my_apis', apisFetcher, [])
 
   const nonDeletedApis = myApis.filter(a => a.status !== 'deleted')
@@ -47,14 +47,14 @@ export default function ProfileScreen({ navigation }: any) {
   }
 
   const handleLogout = () => {
-    Alert.alert(t.logOut, t.logOutConfirm, [
+    showModal(t.logOut, t.logOutConfirm, [
       { text: t.cancel, style: 'cancel' },
       { text: t.logOut, style: 'destructive', onPress: logout },
     ])
   }
 
   const handleResetKey = () => {
-    Alert.alert(t.resetApiKey, t.resetApiKeyConfirm, [
+    showModal(t.resetApiKey, t.resetApiKeyConfirm, [
       { text: t.cancel, style: 'cancel' },
       {
         text: t.reset,
@@ -64,9 +64,9 @@ export default function ProfileScreen({ navigation }: any) {
             const result = await resetApiKey()
             setApiKey(result.api_key)
             setKeyVisible(true)
-            Alert.alert(t.done, t.newKeyGenerated)
+            showModal(t.done, t.newKeyGenerated)
           } catch (e: any) {
-            Alert.alert(t.error, e.message)
+            showModal(t.error, e.message)
           }
         },
       },
@@ -76,7 +76,7 @@ export default function ProfileScreen({ navigation }: any) {
   const handleCopyKey = () => {
     if (apiKey) {
       Clipboard.setString(apiKey)
-      Alert.alert(t.copied, t.apiKeyCopied)
+      showModal(t.copied, t.apiKeyCopied)
     }
   }
 
@@ -164,7 +164,7 @@ export default function ProfileScreen({ navigation }: any) {
       {nonDeletedApis.length > 0 && (
         <View style={s.card}>
           <TouchableOpacity style={s.myApiHeader} onPress={() => setApisExpanded(!apisExpanded)} activeOpacity={0.7}>
-            <Text style={s.myApiTitle}>My APIs ({nonDeletedApis.length})</Text>
+            <Text style={s.myApiTitle}>{t.myApis} ({nonDeletedApis.length})</Text>
             <Text style={s.expandArrow}>{apisExpanded ? '▲' : '▼'}</Text>
           </TouchableOpacity>
           {apisExpanded && filterOptions.length > 2 && (
@@ -180,7 +180,7 @@ export default function ProfileScreen({ navigation }: any) {
                     onPress={() => setApiFilter(st)}
                     activeOpacity={0.7}>
                     <Text style={[s.apiFilterText, apiFilter === st && s.apiFilterTextActive]}>
-                      {st} {count}
+                      {st === 'all' ? t.allFilter : st === 'published' || st === 'active' ? t.published : st === 'draft' ? t.draft : st === 'private' ? t.private : st} {count}
                     </Text>
                   </TouchableOpacity>
                 )
@@ -195,7 +195,7 @@ export default function ProfileScreen({ navigation }: any) {
               activeOpacity={0.6}>
               <View style={s.myApiLeft}>
                 <Text style={s.myApiName} numberOfLines={1}>{api.name}</Text>
-                <Text style={s.myApiMeta}>{api.call_count} calls · {api.price_credits}c</Text>
+                <Text style={s.myApiMeta}>{api.call_count} {t.calls} · {api.price_credits} {t.credits}</Text>
               </View>
               <View style={[s.myApiStatus, {
                 backgroundColor: api.status === 'published' || api.status === 'active' ? '#ecfdf5' : '#fffbeb',
@@ -203,7 +203,7 @@ export default function ProfileScreen({ navigation }: any) {
                 <Text style={[s.myApiStatusText, {
                   color: api.status === 'published' || api.status === 'active' ? '#059669' : '#d97706',
                 }]}>
-                  {api.status}
+                  {api.status === 'published' || api.status === 'active' ? t.published : api.status === 'draft' ? t.draft : api.status === 'private' ? t.private : api.status}
                 </Text>
               </View>
             </TouchableOpacity>

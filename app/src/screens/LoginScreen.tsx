@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Animated,
@@ -16,6 +15,7 @@ import LinearGradient from 'react-native-linear-gradient'
 import { useI18n } from '../i18n'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
+import { showModal } from '../components/AppModal'
 import Logo3D from '../components/Logo3D'
 
 const { width: SCREEN_W } = Dimensions.get('window')
@@ -29,7 +29,7 @@ function isPhone(input: string): boolean {
 
 export default function LoginScreen() {
   const { login, register } = useAuth()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const { height: kbHeight } = useKeyboard()
   const [mode, setMode] = useState<Mode>('login')
   const [step, setStep] = useState<Step>('form')
@@ -83,7 +83,7 @@ export default function LoginScreen() {
       await api.post('/auth/sms/send', { phone: account.trim() })
       setCodeEndTime(Date.now() + 60000)
     } catch (err: any) {
-      Alert.alert(t.errorTitle, err.message || 'Failed to send code')
+      showModal(t.errorTitle, err.message || t.sendCodeFailed)
     } finally {
       setSendingCode(false)
     }
@@ -92,13 +92,13 @@ export default function LoginScreen() {
   // Step 1: Validate form and proceed
   const handleFormSubmit = async () => {
     if (!account.trim()) {
-      Alert.alert(t.errorTitle, t.fillAllFields); return
+      showModal(t.errorTitle, t.fillAllFields); return
     }
 
     if (mode === 'login') {
       // Login: just need account + password
       if (!password.trim()) {
-        Alert.alert(t.errorTitle, t.fillAllFields); return
+        showModal(t.errorTitle, t.fillAllFields); return
       }
       setLoading(true)
       try {
@@ -108,20 +108,20 @@ export default function LoginScreen() {
           await login(account.trim(), password)
         }
       } catch (err: any) {
-        Alert.alert(t.errorTitle, err.message || 'Login failed')
+        showModal(t.errorTitle, err.message || t.loginFailed)
       } finally {
         setLoading(false)
       }
     } else {
       // Register: validate all fields, then go to verify step if phone
-      if (!name.trim()) { Alert.alert(t.errorTitle, t.enterName); return }
-      if (!password.trim()) { Alert.alert(t.errorTitle, t.fillAllFields); return }
+      if (!name.trim()) { showModal(t.errorTitle, t.enterName); return }
+      if (!password.trim()) { showModal(t.errorTitle, t.fillAllFields); return }
       if (password.length < 8) {
-        Alert.alert(t.errorTitle, lang === 'zh' ? '密码至少 8 位' : 'Password must be at least 8 characters')
+        showModal(t.errorTitle, t.passwordMinLength)
         return
       }
       if (password !== confirmPassword) {
-        Alert.alert(t.errorTitle, lang === 'zh' ? '两次密码不一致' : 'Passwords do not match')
+        showModal(t.errorTitle, t.passwordsNoMatch)
         return
       }
 
@@ -135,7 +135,7 @@ export default function LoginScreen() {
         try {
           await register(name.trim(), account.trim(), password)
         } catch (err: any) {
-          Alert.alert(t.errorTitle, err.message || 'Registration failed')
+          showModal(t.errorTitle, err.message || t.registrationFailed)
         } finally {
           setLoading(false)
         }
@@ -146,14 +146,14 @@ export default function LoginScreen() {
   // Step 2: Verify SMS code and complete registration
   const handleVerifySubmit = async () => {
     if (!smsCode.trim() || smsCode.length < 6) {
-      Alert.alert(t.errorTitle, lang === 'zh' ? '请输入 6 位验证码' : 'Please enter 6-digit code')
+      showModal(t.errorTitle, t.enterSmsCode)
       return
     }
     setLoading(true)
     try {
       await register(name.trim(), '', password, { phone: account.trim(), sms_code: smsCode.trim() })
     } catch (err: any) {
-      Alert.alert(t.errorTitle, err.message || 'Registration failed')
+      showModal(t.errorTitle, err.message || t.registrationFailed)
     } finally {
       setLoading(false)
     }
@@ -204,7 +204,7 @@ export default function LoginScreen() {
 
                 {/* Account */}
                 <TextInput style={s.input}
-                  placeholder={lang === 'zh' ? '手机号 / 邮箱' : 'Phone / Email'}
+                  placeholder={t.phoneOrEmail}
                   placeholderTextColor="#94a3b8"
                   value={account} onChangeText={setAccount}
                   autoCapitalize="none" keyboardType="email-address" />
@@ -216,7 +216,7 @@ export default function LoginScreen() {
                 {/* Confirm password (register) */}
                 {mode === 'register' && (
                   <TextInput style={s.input}
-                    placeholder={lang === 'zh' ? '确认密码' : 'Confirm Password'}
+                    placeholder={t.confirmPassword}
                     placeholderTextColor="#94a3b8"
                     value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
                 )}
@@ -227,7 +227,7 @@ export default function LoginScreen() {
                   <LinearGradient colors={['#2563eb', '#1d4ed8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.btn}>
                     {loading ? <ActivityIndicator color="#fff" /> : (
                       <Text style={s.btnText}>
-                        {mode === 'login' ? t.login : (isPhone(account) ? (lang === 'zh' ? '下一步' : 'Next') : t.createAccount)}
+                        {mode === 'login' ? t.login : (isPhone(account) ? t.nextStep : t.createAccount)}
                       </Text>
                     )}
                   </LinearGradient>
@@ -236,9 +236,9 @@ export default function LoginScreen() {
             ) : (
               <>
                 {/* Verify SMS Code */}
-                <Text style={s.verifyTitle}>{lang === 'zh' ? '输入验证码' : 'Enter Verification Code'}</Text>
+                <Text style={s.verifyTitle}>{t.enterVerificationCode}</Text>
                 <Text style={s.verifyDesc}>
-                  {lang === 'zh' ? `验证码已发送至 ${account}` : `Code sent to ${account}`}
+                  {t.codeSentTo.replace('{0}', account)}
                 </Text>
 
                 <TextInput style={s.codeInput}
@@ -253,7 +253,7 @@ export default function LoginScreen() {
                   onPress={handleSendCode}
                   disabled={countdown > 0 || sendingCode}>
                   <Text style={s.resendText}>
-                    {countdown > 0 ? `${countdown}s` : (lang === 'zh' ? '重新发送' : 'Resend')}
+                    {countdown > 0 ? `${countdown}s` : t.resend}
                   </Text>
                 </TouchableOpacity>
 
@@ -267,7 +267,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity style={s.backBtn} onPress={() => setStep('form')}>
-                  <Text style={s.backText}>{lang === 'zh' ? '← 返回' : '← Back'}</Text>
+                  <Text style={s.backText}>← {t.back}</Text>
                 </TouchableOpacity>
               </>
             )}

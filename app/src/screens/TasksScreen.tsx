@@ -13,8 +13,9 @@ import {
 } from 'react-native'
 import { colors, radii, spacing, fontSize, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchCalls } from '../services/api'
+import { fetchCalls, fetchCall } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
+import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 
 // ─── Status Pill ─────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -89,6 +90,55 @@ export default function TasksScreen({ navigation }: any) {
   }, [])
 
   const { data: calls, loading, refreshing, refresh } = useCachedData<any[]>('tasks_calls', callsFetcher, [])
+
+  // ─── Refresh when other screens emit call completed ───
+  useEffect(() => {
+    return events.on(EVENT_CALL_COMPLETED, () => { refresh() })
+  }, [refresh])
+
+  // ─── Auto-poll pending/running/processing tasks every 5s ───
+  const PENDING_STATUSES = ['pending', 'running', 'processing']
+
+  useEffect(() => {
+    const pendingIds = calls
+      .filter(c => PENDING_STATUSES.includes(c.status))
+      .map(c => c.id)
+
+    if (pendingIds.length === 0) return
+
+    const timer = setInterval(async () => {
+      try {
+        const results = await Promise.all(
+          pendingIds.map(id => fetchCall(id).catch(() => null)),
+        )
+
+        const completed: any[] = []
+        for (const result of results) {
+          if (!result) continue
+          const prev = calls.find(c => c.id === result.id)
+          if (prev && PENDING_STATUSES.includes(prev.status) && !PENDING_STATUSES.includes(result.status)) {
+            completed.push(result)
+          }
+        }
+
+        if (completed.length > 0) {
+          await refresh()
+          for (const c of completed) {
+            events.emit(EVENT_CALL_COMPLETED, {
+              call_id: c.id,
+              skill_name: c.skill_name ?? c.skill?.name,
+              status: c.status,
+            })
+          }
+          events.emit(EVENT_WALLET_CHANGED)
+        }
+      } catch {
+        // Network error — keep polling
+      }
+    }, 5000)
+
+    return () => clearInterval(timer)
+  }, [calls, refresh])
 
   const onRefresh = refresh
 

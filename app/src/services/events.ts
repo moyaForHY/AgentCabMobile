@@ -1,4 +1,4 @@
-type Handler = () => void
+type Handler = (payload?: any) => void
 const listeners = new Map<string, Set<Handler>>()
 
 export const events = {
@@ -7,9 +7,16 @@ export const events = {
     listeners.get(event)!.add(handler)
     return () => { listeners.get(event)?.delete(handler) }
   },
-  emit(event: string) {
-    listeners.get(event)?.forEach(fn => fn())
+  emit(event: string, payload?: any) {
+    listeners.get(event)?.forEach(fn => fn(payload))
   },
+}
+
+/** Payload for EVENT_CALL_COMPLETED */
+export type CallCompletedPayload = {
+  call_id: string
+  skill_name?: string
+  status: string
 }
 
 // Event names

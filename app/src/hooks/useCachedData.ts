@@ -3,8 +3,17 @@ import { storage } from '../services/storage'
 
 /**
  * Generic hook: load from cache first, then fetch fresh data in background.
- * Shows cached data instantly, refreshes silently.
+ * All instances sharing the same cacheKey stay in sync —
+ * when one calls refresh(), all others get the new data.
  */
+
+type Listener = (data: any) => void
+const listenerMap = new Map<string, Set<Listener>>()
+
+function notify(cacheKey: string, data: any) {
+  listenerMap.get(cacheKey)?.forEach(fn => fn(data))
+}
+
 export function useCachedData<T>(
   cacheKey: string,
   fetcher: () => Promise<T>,
@@ -19,6 +28,14 @@ export function useCachedData<T>(
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
+  // Subscribe to updates from other instances with same cacheKey
+  useEffect(() => {
+    if (!listenerMap.has(cacheKey)) listenerMap.set(cacheKey, new Set())
+    const listener: Listener = (newData) => setData(newData)
+    listenerMap.get(cacheKey)!.add(listener)
+    return () => { listenerMap.get(cacheKey)?.delete(listener) }
+  }, [cacheKey])
+
   // Load cache + fetch
   useEffect(() => {
     let mounted = true
@@ -28,7 +45,8 @@ export function useCachedData<T>(
       const cached = await storage.getStringAsync(cacheKey)
       if (cached && mounted) {
         try {
-          setData(JSON.parse(cached))
+          const parsed = JSON.parse(cached)
+          setData(parsed)
           setLoading(false)
         } catch {}
       }
@@ -39,6 +57,7 @@ export function useCachedData<T>(
         if (mounted) {
           setData(fresh)
           await storage.setStringAsync(cacheKey, JSON.stringify(fresh))
+          notify(cacheKey, fresh)
         }
       } catch {}
       if (mounted) setLoading(false)
@@ -53,6 +72,8 @@ export function useCachedData<T>(
       const fresh = await fetcher()
       setData(fresh)
       await storage.setStringAsync(cacheKey, JSON.stringify(fresh))
+      // Notify all other instances with same cacheKey
+      notify(cacheKey, fresh)
     } catch {}
     setRefreshing(false)
   }, [cacheKey, fetcher])

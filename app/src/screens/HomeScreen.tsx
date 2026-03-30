@@ -243,7 +243,7 @@ export default function HomeScreen({ navigation }: any) {
                 <View style={styles.apiRowLeft}>
                   <Text style={styles.apiRowName} numberOfLines={1}>{skill.name}</Text>
                   <Text style={styles.apiRowDesc} numberOfLines={1}>
-                    {skill.description || skill.category || 'AI API'}
+                    {[skill.category, `${skill.call_count || 0} ${t.calls}`, skill.rating > 0 ? `★${skill.rating.toFixed(1)}` : '☆ —'].join(' · ')}
                   </Text>
                 </View>
                 <View style={styles.apiRowRight}>

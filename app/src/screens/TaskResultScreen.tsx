@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native'
 import { colors, fontWeight } from '../utils/theme'
@@ -15,7 +14,9 @@ import { fetchCall } from '../services/api'
 import { storage } from '../services/storage'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
 import { executeActions, type Action } from '../services/actionExecutor'
+import { showModal } from '../components/AppModal'
 import DownloadButton from '../components/DownloadButton'
+import ReviewInput from '../components/ReviewInput'
 
 export default function TaskResultScreen({ route }: any) {
   const { t } = useI18n()
@@ -114,6 +115,11 @@ export default function TaskResultScreen({ route }: any) {
         <ActionsSection actions={output.actions} t={t} taskId={taskId} />
       )}
 
+      {/* Review — for completed tasks */}
+      {isOk && call.skill_id && (
+        <ReviewInput skillId={call.skill_id} />
+      )}
+
       {/* Output Files */}
       {outputFiles.length > 0 && (
         <View style={s.card}>
@@ -147,14 +153,14 @@ export default function TaskResultScreen({ route }: any) {
           right={
             <View style={s.actionRow}>
               <TouchableOpacity
-                onPress={() => { writeClipboard(typeof output === 'string' ? output : JSON.stringify(output, null, 2)); Alert.alert(t.copied) }}
+                onPress={() => { writeClipboard(typeof output === 'string' ? output : JSON.stringify(output, null, 2)); showModal(t.copied) }}
                 activeOpacity={0.6}>
                 <Text style={s.actionText}>{t.copy}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => shareText(typeof output === 'string' ? output : JSON.stringify(output, null, 2))}
                 activeOpacity={0.6}>
-                <Text style={s.actionText}>Share</Text>
+                <Text style={s.actionText}>{t.share}</Text>
               </TouchableOpacity>
             </View>
           }>
@@ -213,16 +219,16 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
     setExecuting(true)
     try {
       const results = await executeActions(actions)
-      const failed = results.filter(r => !r.success)
-      if (failed.length === 0) {
-        Alert.alert('✓', `${results.length} actions executed`)
+      const failedResults = results.filter(r => !r.success)
+      if (failedResults.length === 0) {
+        showModal('✓', t.actionsExecuted.replace('{0}', String(results.length)))
       } else {
-        Alert.alert('Done', `${results.length - failed.length} succeeded, ${failed.length} failed`)
+        showModal(t.doneLabel, t.actionsPartial.replace('{0}', String(results.length - failedResults.length)).replace('{1}', String(failedResults.length)))
       }
       setExecuted(true)
       storage.setStringAsync(storageKey, '1').catch(() => {})
     } catch (err: any) {
-      Alert.alert(t.errorTitle, err.message)
+      showModal(t.errorTitle, err.message)
     } finally {
       setExecuting(false)
     }
@@ -230,7 +236,7 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
 
   return (
     <View style={s.card}>
-      <Text style={s.sectionTitle}>Actions ({actions.length})</Text>
+      <Text style={s.sectionTitle}>{t.actionsLabel} ({actions.length})</Text>
       {actions.map((action, i) => (
         <View key={i} style={s.actionItem}>
           <View style={s.actionDot} />
@@ -247,7 +253,7 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
         {executing ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={s.executeBtnText}>{executed ? '✓ Executed' : 'Execute All'}</Text>
+          <Text style={s.executeBtnText}>{executed ? `✓ ${t.executed}` : t.executeAll}</Text>
         )}
       </TouchableOpacity>
     </View>
