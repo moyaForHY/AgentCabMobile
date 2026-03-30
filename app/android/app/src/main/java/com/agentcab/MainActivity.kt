@@ -13,8 +13,9 @@ class MainActivity : ReactActivity() {
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
 
-  // Prevent fragment restore crash (react-native-screens requirement)
+  // Switch from SplashTheme back to AppTheme before React Native renders
   override fun onCreate(savedInstanceState: Bundle?) {
+    setTheme(R.style.AppTheme)
     super.onCreate(null)
   }
 }

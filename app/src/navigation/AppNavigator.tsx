@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, View, Text, Pressable, StatusBar } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -8,7 +8,9 @@ import { useI18n } from '../i18n'
 import { colors, fontWeight as fw } from '../utils/theme'
 import TabIcon from '../components/TabIcon'
 import { navigationRef } from './navigationRef'
+import { storage } from '../services/storage'
 
+import OnboardingScreen from '../screens/OnboardingScreen'
 import LoginScreen from '../screens/LoginScreen'
 import HomeScreen from '../screens/HomeScreen'
 import DiscoverScreen from '../screens/DiscoverScreen'
@@ -115,8 +117,15 @@ function MainTabs() {
 export default function AppNavigator() {
   const { isLoggedIn, isLoading } = useAuth()
   const { t } = useI18n()
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
 
-  if (isLoading) {
+  useEffect(() => {
+    storage.getStringAsync('onboarding_done').then(val => {
+      setOnboardingDone(val === '1')
+    })
+  }, [])
+
+  if (isLoading || onboardingDone === null) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' }}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -127,6 +136,9 @@ export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle }}>
+        {!onboardingDone && (
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        )}
         {isLoggedIn ? (
           <>
             <Stack.Screen name="Main" component={MainTabs} />

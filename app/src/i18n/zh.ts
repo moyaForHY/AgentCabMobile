@@ -222,4 +222,20 @@ export default {
   automationSummary: '摘要',
   enabled: '已启用',
   disabled: '已禁用',
+
+  // Onboarding
+  onboardingTitle1: '能做事的 AI',
+  onboardingDesc1: '不只是回答问题，AI 帮你在手机上把事做完。',
+  onboardingTitle2: '一个入口，无限技能',
+  onboardingDesc2: '发票整理、简历评估、手机瘦身——按次付费，用多少花多少。',
+  onboardingTitle3: '让 AI 自动帮你',
+  onboardingDesc3: '设置一次，定时运行。你睡觉时 AI 替你干活。',
+  onboardingSkip: '跳过',
+  onboardingGetStarted: '开始使用',
+
+  // Network
+  noInternet: '无网络连接',
+  networkRestored: '网络已恢复',
+  serverError: '服务器错误，请稍后重试',
+  sessionExpired: '登录已过期，请重新登录',
 }

@@ -222,4 +222,20 @@ export default {
   automationSummary: 'SUMMARY',
   enabled: 'Enabled',
   disabled: 'Disabled',
+
+  // Onboarding
+  onboardingTitle1: 'AI that acts',
+  onboardingDesc1: 'Not just answers. AgentCab helps you get things done on your phone.',
+  onboardingTitle2: 'One app, many skills',
+  onboardingDesc2: 'Invoice scanning, resume screening, phone cleanup — all in one place, pay per use.',
+  onboardingTitle3: 'Automate your life',
+  onboardingDesc3: 'Set it once, runs on schedule. Your AI assistant works while you sleep.',
+  onboardingSkip: 'Skip',
+  onboardingGetStarted: 'Get Started',
+
+  // Network
+  noInternet: 'No internet connection',
+  networkRestored: 'Connection restored',
+  serverError: 'Server error, please try again later',
+  sessionExpired: 'Session expired, please log in again',
 }

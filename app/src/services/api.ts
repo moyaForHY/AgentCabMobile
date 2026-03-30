@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { getAccessToken, setAccessToken } from './storage'
-import { isOnline } from './network'
+import { isOnline, networkStatus } from './network'
+import { showModal } from '../components/AppModal'
 
 const API_BASE_URL = 'https://www.agentcab.ai/v1'
 
@@ -22,6 +23,9 @@ api.interceptors.request.use(async config => {
   return config
 })
 
+// Debounce server-error modals so we don't spam the user
+let _lastServerErrorModal = 0
+
 api.interceptors.response.use(
   response => response,
   async error => {
@@ -29,6 +33,7 @@ api.interceptors.response.use(
       const token = await getAccessToken()
       if (token) {
         await setAccessToken(null)
+        showModal('Session Expired', 'Your session has expired. Please log in again.')
         onAuthExpired?.()
       }
       return Promise.reject(new Error(token ? 'Session expired. Please login again.' : 'Login required'))
@@ -49,10 +54,19 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status >= 500) {
+      // Show a global modal instead of relying on individual callers
+      const now = Date.now()
+      if (now - _lastServerErrorModal > 5000) {
+        _lastServerErrorModal = now
+        showModal('Server Error', 'Server error, please try again later.')
+      }
       return Promise.reject(new Error('Server error. Please try again later.'))
     }
 
     if (!error.response) {
+      // Network-level failure — report to global network status (shows banner)
+      networkStatus.reportNetworkError()
+
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         return Promise.reject(new Error('Request timeout. Please check your connection and try again.'))
       }
