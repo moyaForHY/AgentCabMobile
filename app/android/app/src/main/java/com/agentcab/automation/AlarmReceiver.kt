@@ -28,6 +28,9 @@ class AlarmReceiver : BroadcastReceiver() {
         // Reschedule next occurrence
         rescheduleNext(context, ruleId)
 
+        // Ensure KeepAlive is running
+        try { KeepAliveService.start(context) } catch (_: Exception) {}
+
         // Check if React context is available (app running)
         try {
             val reactApp = context.applicationContext as? com.facebook.react.ReactApplication

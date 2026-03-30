@@ -26,6 +26,14 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
+        // Start KeepAlive service so process stays alive for alarm execution
+        try {
+            KeepAliveService.start(context)
+            Log.d(TAG, "Started KeepAliveService")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start KeepAliveService: ${e.message}")
+        }
+
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val now = System.currentTimeMillis()
 
