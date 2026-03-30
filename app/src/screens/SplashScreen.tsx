@@ -35,7 +35,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       <Animated.View style={[styles.content, { opacity }]}>
         <Logo3D size={160} pointCount={250} signalCount={10} color="37, 99, 235" glow />
         <Text style={styles.title}>AgentCab</Text>
-        <Text style={styles.subtitle}>Your AI assistant</Text>
+        <Text style={styles.subtitle}>AI能力，触手可及</Text>
       </Animated.View>
     </View>
   )

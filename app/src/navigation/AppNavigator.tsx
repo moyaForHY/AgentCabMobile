@@ -137,7 +137,9 @@ export default function AppNavigator() {
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle }}>
         {!onboardingDone && (
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Onboarding">
+            {(props: any) => <OnboardingScreen {...props} onDone={() => setOnboardingDone(true)} />}
+          </Stack.Screen>
         )}
         {isLoggedIn ? (
           <>

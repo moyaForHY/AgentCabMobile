@@ -3,7 +3,7 @@
  * Uses the AgentCab API health endpoint as a lightweight probe.
  */
 
-const HEALTH_URL = 'https://www.agentcab.ai/v1/health'
+const HEALTH_URL = 'https://www.agentcab.ai/v1/skills?page=1&page_size=1'
 const TIMEOUT_MS = 5000
 const POLL_INTERVAL_MS = 10000 // check every 10s when offline, 30s when online
 const POLL_INTERVAL_ONLINE_MS = 30000

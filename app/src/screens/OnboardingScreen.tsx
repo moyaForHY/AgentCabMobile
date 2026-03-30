@@ -122,7 +122,7 @@ function IllustrationSkills() {
     <View style={ill.container}>
       <View style={[ill.glow, { backgroundColor: 'rgba(37,99,235,0.03)', width: 300, height: 300, borderRadius: 150 }]} />
 
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View style={{ width: 280, height: 240, transform: [{ scale }] }}>
         {/* Connection lines */}
         {connections.map(([a, b], i) => {
           const n1 = nodes[a], n2 = nodes[b]
@@ -216,10 +216,10 @@ function IllustrationAutomate() {
         ))}
 
         {/* Hour hand */}
-        <View style={[ill.clockHand, { height: 24, width: 3, transform: [{ rotate: '150deg' }, { translateY: -12 }] }]} />
+        <View style={[ill.hand, { height: 22, width: 3, transform: [{ rotate: '150deg' }], top: 14 }]} />
 
         {/* Minute hand */}
-        <Animated.View style={[ill.clockHand, { height: 32, width: 2, backgroundColor: '#3b82f6', transform: [{ rotate: minuteRotate }, { translateY: -16 }] }]} />
+        <View style={[ill.hand, { height: 30, width: 2, backgroundColor: '#3b82f6', transform: [{ rotate: '30deg' }], top: 8 }]} />
 
         {/* Center dot */}
         <View style={ill.clockCenter} />
@@ -292,7 +292,7 @@ const pages: PageData[] = [
 
 // ─── Main Screen ─────────────────────────────────────────────
 
-export default function OnboardingScreen({ navigation }: any) {
+export default function OnboardingScreen({ navigation, onDone }: any) {
   const { t } = useI18n()
   const flatListRef = useRef<FlatList>(null)
   const [currentPage, setCurrentPage] = useState(0)
@@ -309,7 +309,7 @@ export default function OnboardingScreen({ navigation }: any) {
 
   const finish = useCallback(() => {
     storage.setString('onboarding_done', '1')
-    navigation.replace('Login')
+    onDone?.()
   }, [navigation])
 
   const goNext = useCallback(() => {
@@ -471,7 +471,14 @@ const ill = StyleSheet.create({
     position: 'absolute',
     backgroundColor: '#1e40af',
     borderRadius: 2,
-    bottom: '50%',
+  },
+  hand: {
+    position: 'absolute',
+    backgroundColor: '#1e40af',
+    borderRadius: 2,
+    left: '50%',
+    marginLeft: -1.5,
+    transformOrigin: 'bottom',
   },
   clockCenter: {
     width: 6,

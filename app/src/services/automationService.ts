@@ -4,13 +4,36 @@
  */
 import { NativeModules, DeviceEventEmitter } from 'react-native'
 import { storage } from './storage'
-import { callSkill, fetchSkillById } from './api'
+import { callSkill, fetchSkillById, fetchCall } from './api'
+import { executeActions, type Action } from './actionExecutor'
 import { collectAllDeviceData, getDeviceFormats } from './dataCollector'
 import { events } from './events'
 
 const AlarmSchedulerModule = NativeModules.AlarmSchedulerModule
 
 const STORAGE_KEY = 'automation_rules'
+
+// Actions that require user confirmation — not auto-executed
+const DANGEROUS_ACTIONS = new Set([
+  'delete_file', 'delete_files', 'move_file',
+  'uninstall_app', 'set_wallpaper',
+  'click_text', 'set_text', 'long_press',  // accessibility actions
+])
+
+// Poll for async skill completion
+async function pollForCompletion(callId: string, timeoutMs: number): Promise<any> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 5000))
+    try {
+      const call = await fetchCall(callId)
+      if (call.status === 'success' || call.status === 'completed' || call.status === 'failed') {
+        return call
+      }
+    } catch {}
+  }
+  return { status: 'timeout' }
+}
 
 // ── Types ──
 
@@ -206,6 +229,37 @@ export async function executeRule(ruleId: string): Promise<void> {
 
     const result = await callSkill(rule.skillId, { input })
 
+    // Poll for completion if async
+    let finalResult = result
+    if (result.status === 'pending' || result.status === 'running' || result.status === 'processing') {
+      finalResult = await pollForCompletion(result.call_id, 5 * 60 * 1000)
+    }
+
+    // Auto-execute safe actions if present
+    const output = finalResult.output_data || finalResult.output
+    if (finalResult.actions_allowed && output?.actions && Array.isArray(output.actions)) {
+      const safeActions = output.actions.filter((a: Action) => !DANGEROUS_ACTIONS.has(a.type))
+      const dangerousActions = output.actions.filter((a: Action) => DANGEROUS_ACTIONS.has(a.type))
+
+      if (safeActions.length > 0) {
+        await executeActions(safeActions)
+      }
+
+      // Store dangerous actions for user confirmation later
+      if (dangerousActions.length > 0) {
+        const pending = await storage.getStringAsync('pending_actions') || '[]'
+        const list = JSON.parse(pending)
+        list.push({
+          ruleId,
+          skillName: rule.skillName,
+          callId: finalResult.call_id || result.call_id,
+          actions: dangerousActions,
+          timestamp: new Date().toISOString(),
+        })
+        await storage.setStringAsync('pending_actions', JSON.stringify(list))
+      }
+    }
+
     // Update lastRun
     rule.lastRun = new Date().toISOString()
     const allRules = await getRules()
@@ -215,9 +269,13 @@ export async function executeRule(ruleId: string): Promise<void> {
       await saveRules(allRules)
     }
 
-    // Update notification to "completed"
+    // Update notification
+    const actionCount = output?.actions?.length || 0
+    const notifText = actionCount > 0
+      ? `Completed — ${actionCount} actions executed`
+      : 'Completed — tap to view result'
     try {
-      await AlarmSchedulerModule?.updateNotification(ruleId, `${rule.skillName}`, 'Completed — tap to view result')
+      await AlarmSchedulerModule?.updateNotification(ruleId, `${rule.skillName}`, notifText)
     } catch {}
 
     events.emit(EVENT_AUTOMATION_EXECUTED, {
