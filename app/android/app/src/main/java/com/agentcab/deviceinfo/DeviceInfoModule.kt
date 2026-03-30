@@ -370,6 +370,26 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun playAlarmSound(durationSeconds: Double, promise: Promise) {
+        try {
+            val am = reactApplicationContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
+            val ringtone = android.media.RingtoneManager.getRingtone(reactApplicationContext, uri)
+            ringtone?.play()
+
+            // Stop after duration
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                ringtone?.stop()
+            }, (durationSeconds * 1000).toLong())
+
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ALARM_ERROR", e.message, e)
+        }
+    }
+
     private fun formatIp(ip: Int): String {
         return "${ip and 0xFF}.${ip shr 8 and 0xFF}.${ip shr 16 and 0xFF}.${ip shr 24 and 0xFF}"
     }

@@ -235,6 +235,26 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         await Notifications.showNotification(action.title, action.body)
         return ok(action.type)
 
+      case 'alarm': {
+        // Play alarm sound + vibrate + show notification
+        const { Vibration, NativeModules: NM } = require('react-native')
+        // Vibrate pattern: wait 0ms, vibrate 500ms, pause 200ms, vibrate 500ms, pause 200ms, vibrate 500ms
+        Vibration.vibrate([0, 500, 200, 500, 200, 500], false)
+        // Show a high-priority notification with sound
+        await Notifications.showNotification(
+          action.title || 'Alarm',
+          action.body || action.message || '',
+        )
+        // Play alarm sound via DeviceInfoModule if available
+        try {
+          const DeviceInfo = NM.DeviceInfoManager
+          if (DeviceInfo?.playAlarmSound) {
+            await DeviceInfo.playAlarmSound(action.duration || 5)
+          }
+        } catch {}
+        return ok(action.type)
+      }
+
       // ── App Operations ──
       case 'launch_app':
         try {
