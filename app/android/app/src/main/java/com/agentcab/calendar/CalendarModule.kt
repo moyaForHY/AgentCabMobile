@@ -175,6 +175,35 @@ class CalendarModule(reactContext: ReactApplicationContext) :
     }
 
     /**
+     * Add a reminder (alarm) to an existing calendar event.
+     * @param eventId Event ID
+     * @param minutesBefore Minutes before the event to trigger the reminder
+     */
+    @ReactMethod
+    fun addReminder(eventId: String, minutesBefore: Int, promise: Promise) {
+        try {
+            val values = ContentValues().apply {
+                put(CalendarContract.Reminders.EVENT_ID, eventId.toLong())
+                put(CalendarContract.Reminders.MINUTES, minutesBefore)
+                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+            }
+
+            val uri = reactApplicationContext.contentResolver.insert(
+                CalendarContract.Reminders.CONTENT_URI,
+                values
+            )
+
+            if (uri != null) {
+                promise.resolve(true)
+            } else {
+                promise.reject("REMINDER_ERROR", "Failed to add reminder: insert returned null")
+            }
+        } catch (e: Exception) {
+            promise.reject("REMINDER_ERROR", "Failed to add reminder: ${e.message}", e)
+        }
+    }
+
+    /**
      * Delete a calendar event by ID.
      * @param eventId Event ID
      */

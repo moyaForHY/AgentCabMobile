@@ -13,6 +13,7 @@ import * as Accessibility from './accessibility'
 import { writeClipboard, shareText, shareFile } from './deviceCapabilities'
 import { downloadToDevice } from './fileDownloader'
 import { setWallpaper } from './screenshot'
+import { saveContact } from './contacts'
 
 export type Action = {
   type: string
@@ -146,6 +147,28 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
           action.type,
         )
 
+      case 'create_reminder':
+        return await withConfirm(
+          `Create reminder: "${action.title}" at ${new Date(action.time).toLocaleString()}?`,
+          async () => {
+            await Calendar.requestCalendarPermission()
+            const reminderTime = new Date(action.time).getTime()
+            const minutesBefore = action.minutes_before ?? 10
+            // Create a 30-minute event at the reminder time
+            const eventId = await Calendar.createEvent(
+              action.calendarId || '1',
+              action.title,
+              reminderTime,
+              reminderTime + 30 * 60 * 1000,
+              action.description || '',
+              '',
+            )
+            // Attach an alarm/reminder to the event
+            await Calendar.addReminder(eventId, minutesBefore)
+          },
+          action.type,
+        )
+
       case 'set_alarm':
         try {
           await Linking.openURL(`content://com.android.deskclock/alarm?hour=${action.hour}&minutes=${action.minute}`)
@@ -170,6 +193,19 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         } catch {
           return { type: action.type, success: false, error: 'Could not open dialer.' }
         }
+
+      case 'save_contact':
+        return await withConfirm(
+          `Save contact "${action.name}"?`,
+          () => saveContact({
+            name: action.name,
+            phone: action.phone,
+            email: action.email,
+            company: action.company,
+            title: action.title,
+          }),
+          action.type,
+        )
 
       // ── Share & Clipboard ──
       case 'share_text':

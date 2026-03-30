@@ -16,6 +16,8 @@ import { takeScreenshot } from './screenshot'
 import { uploadFile } from './api'
 
 const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
+const CallLogModule = NativeModules.CallLogModule ?? null
+const SmsModule = NativeModules.SmsModule ?? null
 
 type DeviceOptions = {
   days?: number
@@ -109,26 +111,24 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── Call Log ──
     case 'device:call_log':
       try {
-        if (!PermissionsAndroid.PERMISSIONS.READ_CALL_LOG) return []
+        if (!PermissionsAndroid.PERMISSIONS.READ_CALL_LOG || !CallLogModule) return []
         return await withTimeout((async () => {
           const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_CALL_LOG)
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) return null
-          // Call log needs a Kotlin module — return placeholder
-          // TODO: implement CallLogModule
-          return []
+          return await CallLogModule.getCallLog(options?.limit || 200, options?.days || 30)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
 
     // ── SMS ──
     case 'device:sms':
       try {
-        if (!PermissionsAndroid.PERMISSIONS.READ_SMS) return []
+        if (!SmsModule || !PermissionsAndroid.PERMISSIONS.READ_SMS) return []
         return await withTimeout((async () => {
           const smsGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS)
           if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) return null
-          // SMS needs a Kotlin module — return placeholder
-          // TODO: implement SmsModule
-          return []
+          const limit = options?.limit || 100
+          const days = options?.days || 30
+          return await SmsModule.getRecentMessages(limit, days)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
 
@@ -257,11 +257,14 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
 
     // ── Notifications ──
     case 'device:notifications':
-      return []
+      return { available: false, reason: 'Notification access requires special permission. Go to Settings > Notification access to enable.' }
 
     // ── Media Playing ──
     case 'device:media_playing':
-      return null
+      try {
+        if (!DeviceInfoManager) return { isPlaying: false, error: 'DeviceInfoManager not available' }
+        return await withTimeout(DeviceInfoManager.getMediaPlayingInfo(), COLLECT_TIMEOUT, null)
+      } catch { return null }
 
     default:
       return null

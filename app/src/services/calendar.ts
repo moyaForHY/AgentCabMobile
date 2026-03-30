@@ -98,3 +98,12 @@ export async function createEvent(
 export async function deleteEvent(eventId: string): Promise<boolean> {
   return CalendarManager.deleteEvent(eventId)
 }
+
+/**
+ * Add a reminder (alarm) to an existing calendar event.
+ * @param eventId The event to attach the reminder to
+ * @param minutesBefore Minutes before the event to fire the alarm
+ */
+export async function addReminder(eventId: string, minutesBefore: number): Promise<boolean> {
+  return CalendarManager.addReminder(eventId, minutesBefore)
+}

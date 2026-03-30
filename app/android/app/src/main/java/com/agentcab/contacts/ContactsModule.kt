@@ -1,5 +1,7 @@
 package com.agentcab.contacts
 
+import android.content.ContentProviderOperation
+import android.content.Intent
 import android.provider.ContactsContract
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
@@ -185,6 +187,76 @@ class ContactsModule(reactContext: ReactApplicationContext) :
             promise.resolve(count)
         } catch (e: Exception) {
             promise.reject("COUNT_ERROR", "Failed to count contacts: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Insert a new contact using ContactsContract batch operations.
+     */
+    @ReactMethod
+    fun insertContact(name: String, phone: String, email: String, company: String, jobTitle: String, promise: Promise) {
+        try {
+            val ops = ArrayList<ContentProviderOperation>()
+
+            // Create raw contact
+            ops.add(
+                ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
+                    .build()
+            )
+
+            // Name
+            if (name.isNotEmpty()) {
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name)
+                        .build()
+                )
+            }
+
+            // Phone
+            if (phone.isNotEmpty()) {
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, phone)
+                        .withValue(ContactsContract.CommonDataKinds.Phone.TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+                        .build()
+                )
+            }
+
+            // Email
+            if (email.isNotEmpty()) {
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, email)
+                        .withValue(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_WORK)
+                        .build()
+                )
+            }
+
+            // Company & Job Title
+            if (company.isNotEmpty() || jobTitle.isNotEmpty()) {
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Organization.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Organization.COMPANY, company)
+                        .withValue(ContactsContract.CommonDataKinds.Organization.TITLE, jobTitle)
+                        .build()
+                )
+            }
+
+            reactApplicationContext.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("INSERT_CONTACT_ERROR", "Failed to insert contact: ${e.message}", e)
         }
     }
 

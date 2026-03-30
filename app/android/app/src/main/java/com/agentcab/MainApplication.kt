@@ -17,6 +17,8 @@ import com.agentcab.screenshot.ScreenshotPackage
 import com.agentcab.accessibility.AccessibilityPackage
 import com.agentcab.deviceinfo.DeviceInfoPackage
 import com.agentcab.storage.StorageScannerPackage
+import com.agentcab.calllog.CallLogPackage
+import com.agentcab.sms.SmsPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -37,6 +39,8 @@ class MainApplication : Application(), ReactApplication {
           add(AccessibilityPackage())
           add(DeviceInfoPackage())
           add(StorageScannerPackage())
+          add(CallLogPackage())
+          add(SmsPackage())
         },
     )
   }

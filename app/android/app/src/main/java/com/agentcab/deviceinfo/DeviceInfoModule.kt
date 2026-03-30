@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.location.LocationManager
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
@@ -107,6 +108,20 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("DEVICE_INFO_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getMediaPlayingInfo(promise: Promise) {
+        try {
+            val audioManager = reactApplicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val isPlaying = audioManager.isMusicActive
+            val result = WritableNativeMap().apply {
+                putBoolean("isPlaying", isPlaying)
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("MEDIA_ERROR", e.message, e)
         }
     }
 
