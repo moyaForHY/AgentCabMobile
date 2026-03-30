@@ -108,13 +108,7 @@ export default function AutomationsScreen({ navigation }: any) {
           <Text style={s.backBtn}>{t.back}</Text>
         </TouchableOpacity>
         <Text style={s.headerTitle}>{t.automations}</Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('CreateAutomation')}
-          activeOpacity={0.6}>
-          <View style={s.addBtn}>
-            <Text style={s.addBtnText}>+</Text>
-          </View>
-        </TouchableOpacity>
+        <View style={{ width: 40 }} />
       </View>
 
       {rules.length === 0 ? (
@@ -129,9 +123,9 @@ export default function AutomationsScreen({ navigation }: any) {
           <Text style={s.emptyText}>{t.noAutomations}</Text>
           <TouchableOpacity
             style={s.emptyBtn}
-            onPress={() => navigation.navigate('CreateAutomation')}
+            onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}
             activeOpacity={0.7}>
-            <Text style={s.emptyBtnText}>{t.createAutomation}</Text>
+            <Text style={s.emptyBtnText}>{lang === 'zh' ? '浏览 API' : 'Browse APIs'}</Text>
           </TouchableOpacity>
         </View>
       ) : (

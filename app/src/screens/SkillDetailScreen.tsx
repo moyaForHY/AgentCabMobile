@@ -417,6 +417,17 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                   : <Text style={st.callBtnText}>{t.callApi}</Text>}
               </LinearGradient>
             </TouchableOpacity>
+
+            {/* Create Automation */}
+            <TouchableOpacity
+              style={st.autoBtn}
+              onPress={() => navigation.navigate('CreateAutomation', {
+                preSelectedSkill: skill,
+                preInputValues: values,
+              })}
+              activeOpacity={0.7}>
+              <Text style={st.autoBtnText}>{t.createAutomation}</Text>
+            </TouchableOpacity>
           </>
         ) : (
           <>
@@ -617,6 +628,15 @@ const st = StyleSheet.create({
   callBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   callBtn: { paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderRadius: 12 },
   callBtnText: { fontSize: 15, fontWeight: fontWeight.bold, color: '#fff' },
+  autoBtn: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  autoBtnText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.primary },
 
   // Example tab
   exSection: { marginBottom: 16 },

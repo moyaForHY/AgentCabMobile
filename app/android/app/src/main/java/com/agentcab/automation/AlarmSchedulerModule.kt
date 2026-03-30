@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import com.facebook.react.bridge.*
 
 class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
@@ -30,9 +31,42 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun canScheduleExact(promise: Promise) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            promise.resolve(getAlarmManager().canScheduleExactAlarms())
+        } else {
+            promise.resolve(true)
+        }
+    }
+
+    @ReactMethod
+    fun requestExactAlarmPermission(promise: Promise) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactApplicationContext.startActivity(intent)
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.reject("PERMISSION_ERROR", e.message, e)
+            }
+        } else {
+            promise.resolve(true)
+        }
+    }
+
+    @ReactMethod
     fun scheduleAlarm(ruleId: String, triggerAtMillis: Double, repeatIntervalMillis: Double, promise: Promise) {
         try {
             val am = getAlarmManager()
+
+            // Check exact alarm permission on Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                promise.reject("PERMISSION_DENIED", "Exact alarm permission not granted. Please allow in Settings.")
+                return
+            }
+
             val pi = buildPendingIntent(ruleId)
             val triggerAt = triggerAtMillis.toLong()
             val interval = repeatIntervalMillis.toLong()
@@ -61,7 +95,7 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     fun cancelAlarm(ruleId: String, promise: Promise) {
         try {
             val am = getAlarmManager()
-            val pi = buildPendingIntent(ruleId, PendingIntent.FLAG_NO_CREATE)
+            val pi = buildPendingIntent(ruleId)
             am.cancel(pi)
 
             // Remove from SharedPreferences
@@ -88,7 +122,7 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
             val am = getAlarmManager()
 
             for (id in ids) {
-                val pi = buildPendingIntent(id, PendingIntent.FLAG_NO_CREATE)
+                val pi = buildPendingIntent(id)
                 am.cancel(pi)
             }
 
@@ -96,6 +130,65 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("ALARM_ERROR", "Failed to cancel all alarms: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun startKeepAlive(promise: Promise) {
+        try {
+            KeepAliveService.start(reactApplicationContext)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SERVICE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun stopKeepAlive(promise: Promise) {
+        try {
+            KeepAliveService.stop(reactApplicationContext)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SERVICE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun updateNotification(ruleId: String, title: String, text: String, promise: Promise) {
+        try {
+            val nm = reactApplicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel("agentcab_automation", "Automations", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                )
+            }
+
+            val tapIntent = reactApplicationContext.packageManager.getLaunchIntentForPackage(reactApplicationContext.packageName)?.apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pendingTap = android.app.PendingIntent.getActivity(
+                reactApplicationContext, ruleId.hashCode(), tapIntent!!,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.Notification.Builder(reactApplicationContext, "agentcab_automation")
+            } else {
+                @Suppress("DEPRECATION")
+                android.app.Notification.Builder(reactApplicationContext)
+            }.apply {
+                setSmallIcon(android.R.drawable.ic_dialog_info)
+                setContentTitle(title)
+                setContentText(text)
+                setContentIntent(pendingTap)
+                setAutoCancel(true)
+            }.build()
+
+            nm.notify(ruleId.hashCode(), notification)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("NOTIFICATION_ERROR", e.message, e)
         }
     }
 }

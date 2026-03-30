@@ -209,7 +209,7 @@ export default {
   deleteAutomationConfirm: 'Are you sure you want to delete this automation?',
   saveAutomation: 'Save',
   updateAutomation: 'Update',
-  noAutomations: 'No automations yet. Tap + to create one.',
+  noAutomations: 'No automations yet',
   daily: 'Daily',
   weekly: 'Weekly',
   everyXHours: 'Every X Hours',

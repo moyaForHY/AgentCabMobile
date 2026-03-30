@@ -53,6 +53,13 @@ async function saveRules(rules: AutomationRule[]): Promise<void> {
 // ── CRUD ──
 
 export async function saveRule(rule: AutomationRule): Promise<void> {
+  // Schedule first — if permission denied, don't save
+  if (rule.enabled) {
+    await scheduleRule(rule)
+  } else {
+    await cancelRule(rule.id)
+  }
+
   const rules = await getRules()
   const idx = rules.findIndex(r => r.id === rule.id)
   if (idx >= 0) {
@@ -61,12 +68,7 @@ export async function saveRule(rule: AutomationRule): Promise<void> {
     rules.push(rule)
   }
   await saveRules(rules)
-
-  if (rule.enabled) {
-    await scheduleRule(rule)
-  } else {
-    await cancelRule(rule.id)
-  }
+  await syncKeepAlive()
 }
 
 export async function deleteRule(id: string): Promise<void> {
@@ -74,6 +76,7 @@ export async function deleteRule(id: string): Promise<void> {
   const filtered = rules.filter(r => r.id !== id)
   await saveRules(filtered)
   await cancelRule(id)
+  await syncKeepAlive()
 }
 
 export async function toggleRule(id: string, enabled: boolean): Promise<void> {
@@ -88,6 +91,7 @@ export async function toggleRule(id: string, enabled: boolean): Promise<void> {
   } else {
     await cancelRule(id)
   }
+  await syncKeepAlive()
 }
 
 // ── Scheduling ──
@@ -146,6 +150,26 @@ export async function scheduleRule(rule: AutomationRule): Promise<void> {
     console.warn('AlarmSchedulerModule not available')
     return
   }
+
+  // Check exact alarm permission on Android 12+
+  try {
+    const canSchedule = await AlarmSchedulerModule.canScheduleExact()
+    if (!canSchedule) {
+      const { showModal } = require('../components/AppModal')
+      showModal(
+        'Permission Required',
+        'AgentCab needs permission to set exact alarms for automations. Tap "Open Settings" to allow.',
+        [
+          { text: 'Cancel', style: 'cancel' as const },
+          { text: 'Open Settings', onPress: () => AlarmSchedulerModule.requestExactAlarmPermission() },
+        ],
+      )
+      throw new Error('EXACT_ALARM_PERMISSION_DENIED')
+    }
+  } catch (e: any) {
+    if (e?.message === 'EXACT_ALARM_PERMISSION_DENIED') throw e
+  }
+
   const triggerAt = getNextTriggerTime(rule.schedule)
   const interval = getRepeatInterval(rule.schedule)
   await AlarmSchedulerModule.scheduleAlarm(rule.id, triggerAt, interval)
@@ -170,10 +194,14 @@ export async function executeRule(ruleId: string): Promise<void> {
     // Fetch skill to check if it needs device data
     const skill = await fetchSkillById(rule.skillId)
     const formats = getDeviceFormats(skill.input_schema || {})
-    let input: Record<string, any> = {}
 
+    // Start with preset input values (user configured when creating automation)
+    let input: Record<string, any> = { ...((rule as any).inputValues || {}) }
+
+    // Collect device data and merge (device data overwrites preset for device:* fields)
     if (formats.length > 0) {
-      input = await collectAllDeviceData(skill.input_schema || {})
+      const deviceData = await collectAllDeviceData(skill.input_schema || {})
+      input = { ...input, ...deviceData }
     }
 
     const result = await callSkill(rule.skillId, { input })
@@ -187,6 +215,11 @@ export async function executeRule(ruleId: string): Promise<void> {
       await saveRules(allRules)
     }
 
+    // Update notification to "completed"
+    try {
+      await AlarmSchedulerModule?.updateNotification(ruleId, `${rule.skillName}`, 'Completed — tap to view result')
+    } catch {}
+
     events.emit(EVENT_AUTOMATION_EXECUTED, {
       ruleId,
       skillName: rule.skillName,
@@ -195,6 +228,12 @@ export async function executeRule(ruleId: string): Promise<void> {
     })
   } catch (e: any) {
     console.error('Automation execution failed:', e.message)
+
+    // Update notification to "failed"
+    try {
+      await AlarmSchedulerModule?.updateNotification(ruleId, `${rule?.skillName || 'Automation'}`, `Failed: ${e.message?.slice(0, 50)}`)
+    } catch {}
+
     events.emit(EVENT_AUTOMATION_EXECUTED, {
       ruleId,
       skillName: rule.skillName,
@@ -202,6 +241,21 @@ export async function executeRule(ruleId: string): Promise<void> {
       error: e.message,
     })
   }
+}
+
+// ── Keep-alive service management ──
+
+async function syncKeepAlive(): Promise<void> {
+  if (!AlarmSchedulerModule) return
+  const rules = await getRules()
+  const hasEnabled = rules.some(r => r.enabled)
+  try {
+    if (hasEnabled) {
+      await AlarmSchedulerModule.startKeepAlive()
+    } else {
+      await AlarmSchedulerModule.stopKeepAlive()
+    }
+  } catch {}
 }
 
 // ── Reschedule all (on boot / app start) ──
@@ -213,6 +267,7 @@ export async function rescheduleAll(): Promise<void> {
       await scheduleRule(rule)
     }
   }
+  await syncKeepAlive()
 }
 
 // ── Listen for alarm events from native ──
@@ -223,6 +278,7 @@ export function initAutomationListener(): () => void {
   if (listenerRegistered) return () => {}
   listenerRegistered = true
 
+  // Listen for alarm events when app is running
   const subscription = DeviceEventEmitter.addListener('onAutomationAlarm', (event: { ruleId: string }) => {
     if (event?.ruleId) {
       executeRule(event.ruleId).catch(err =>
@@ -231,7 +287,29 @@ export function initAutomationListener(): () => void {
     }
   })
 
-  // Also reschedule all on app start
+  // Check if app was launched by an alarm (app was not running)
+  const { Linking } = require('react-native')
+  Linking.getInitialURL().then((url: string | null) => {
+    // Android intent extras come through as launch intent, not URL
+    // We need to check NativeModules for the intent extra
+  }).catch(() => {})
+
+  // Check launch intent for automationRuleId
+  try {
+    const { NativeModules } = require('react-native')
+    const launchIntent = NativeModules.IntentModule
+    if (launchIntent?.getInitialIntent) {
+      launchIntent.getInitialIntent().then((extras: any) => {
+        if (extras?.automationRuleId) {
+          executeRule(extras.automationRuleId).catch(err =>
+            console.error('Failed to execute automation from launch intent:', err),
+          )
+        }
+      }).catch(() => {})
+    }
+  } catch {}
+
+  // Reschedule all on app start
   rescheduleAll().catch(() => {})
 
   return () => {

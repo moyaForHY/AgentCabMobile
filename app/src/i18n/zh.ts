@@ -209,7 +209,7 @@ export default {
   deleteAutomationConfirm: '确定要删除这个自动化任务吗？',
   saveAutomation: '保存',
   updateAutomation: '更新',
-  noAutomations: '暂无自动化任务，点击 + 创建一个。',
+  noAutomations: '暂无自动化任务',
   daily: '每天',
   weekly: '每周',
   everyXHours: '每隔 X 小时',

@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class AlarmSchedulerPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-        listOf(AlarmSchedulerModule(reactContext))
+        listOf(AlarmSchedulerModule(reactContext), IntentModule(reactContext))
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()

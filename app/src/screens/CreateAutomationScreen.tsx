@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -7,11 +7,17 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StatusBar,
+  Animated,
+  Easing,
 } from 'react-native'
+import LinearGradient from 'react-native-linear-gradient'
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchSkills, type Skill } from '../services/api'
+import { useKeyboard } from '../hooks/useKeyboard'
+import DynamicForm from '../components/DynamicForm'
+import type { PickedFile } from '../services/deviceCapabilities'
 import {
   saveRule,
   generateRuleId,
@@ -21,77 +27,122 @@ import {
 const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-const MINUTES = ['00', '15', '30', '45']
+const MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
 const INTERVAL_OPTIONS = [
-  { label: '1h', minutes: 60 },
-  { label: '2h', minutes: 120 },
-  { label: '4h', minutes: 240 },
-  { label: '6h', minutes: 360 },
-  { label: '12h', minutes: 720 },
+  { label: '1h', minutes: 60, desc: '' },
+  { label: '2h', minutes: 120, desc: '' },
+  { label: '4h', minutes: 240, desc: '' },
+  { label: '6h', minutes: 360, desc: '' },
+  { label: '12h', minutes: 720, desc: '' },
 ]
 
-const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const WEEKDAYS_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-
-type Step = 'skill' | 'type' | 'config' | 'confirm'
+const WEEKDAYS_EN = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+const WEEKDAYS_ZH = ['日', '一', '二', '三', '四', '五', '六']
+const WEEKDAY_FULL_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const WEEKDAY_FULL_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 export default function CreateAutomationScreen({ route, navigation }: any) {
   const { t, lang } = useI18n()
+  const { height: kbHeight } = useKeyboard()
   const editRule = route?.params?.editRule as AutomationRule | undefined
+  const preSelectedSkill = route?.params?.preSelectedSkill as Skill | undefined
+  const preInputValues = route?.params?.preInputValues as Record<string, any> | undefined
 
-  const [step, setStep] = useState<Step>(editRule ? 'type' : 'skill')
   const [skills, setSkills] = useState<Skill[]>([])
-  const [loadingSkills, setLoadingSkills] = useState(false)
-  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null)
+  const [loadingSkills, setLoadingSkills] = useState(!preSelectedSkill)
+  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(preSelectedSkill || null)
   const [scheduleType, setScheduleType] = useState<'daily' | 'weekly' | 'interval'>('daily')
   const [hour, setHour] = useState('08')
   const [minute, setMinute] = useState('00')
-  const [weekday, setWeekday] = useState(1) // Monday
+  const [weekday, setWeekday] = useState(1)
   const [intervalMinutes, setIntervalMinutes] = useState(60)
+  const [inputValues, setInputValues] = useState<Record<string, any>>({})
+  const [pickedFiles, setPickedFiles] = useState<Record<string, PickedFile[]>>({})
   const [saving, setSaving] = useState(false)
 
-  // Pre-fill if editing
+  const fadeAnim = useRef(new Animated.Value(0)).current
+  const slideAnim = useRef(new Animated.Value(20)).current
+  const hourScrollRef = useRef<ScrollView>(null)
+
   useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start()
+  }, [selectedSkill])
+
+  // Scroll to selected hour on mount
+  useEffect(() => {
+    if (selectedSkill && scheduleType !== 'interval') {
+      const idx = HOURS.indexOf(hour)
+      setTimeout(() => hourScrollRef.current?.scrollTo({ x: Math.max(0, idx * 48 - 80), animated: true }), 100)
+    }
+  }, [selectedSkill, scheduleType])
+
+  useEffect(() => {
+    if (preInputValues && !editRule) setInputValues(preInputValues)
     if (editRule) {
       setScheduleType(editRule.schedule.type)
       if (editRule.schedule.time) {
         const [h, m] = editRule.schedule.time.split(':')
-        setHour(h)
-        setMinute(m)
+        setHour(h); setMinute(m)
       }
       if (editRule.schedule.weekday !== undefined) setWeekday(editRule.schedule.weekday)
       if (editRule.schedule.intervalMinutes) setIntervalMinutes(editRule.schedule.intervalMinutes)
+      if ((editRule as any).inputValues) setInputValues((editRule as any).inputValues)
     }
   }, [editRule])
 
-  // Load skills
   useEffect(() => {
-    if (step === 'skill' && skills.length === 0) {
-      setLoadingSkills(true)
-      fetchSkills(1, 50)
-        .then(res => setSkills(res.items.filter(s => s.status === 'published' || s.status === 'active')))
-        .catch(() => {})
-        .finally(() => setLoadingSkills(false))
+    if (preSelectedSkill && !editRule) { setLoadingSkills(false); return }
+    setLoadingSkills(true)
+    fetchSkills(1, 50)
+      .then(res => {
+        const available = res.items.filter(s => s.status === 'published' || s.status === 'active')
+        setSkills(available)
+        if (editRule) {
+          const match = available.find(s => s.id === editRule.skillId)
+          if (match) setSelectedSkill(match)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingSkills(false))
+  }, [])
+
+  const handleFilePicked = useCallback((fieldKey: string, files: PickedFile[]) => {
+    setPickedFiles(prev => ({ ...prev, [fieldKey]: files }))
+  }, [])
+
+  function filterManualFields(schema: any): any {
+    if (!schema?.properties) return schema
+    const filtered: Record<string, any> = {}
+    for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+      if (!prop.format?.startsWith('device:')) filtered[key] = prop
     }
-  }, [step])
-
-  const handleSelectSkill = (skill: Skill) => {
-    setSelectedSkill(skill)
-    setStep('type')
+    return { ...schema, properties: filtered }
   }
 
-  const handleSelectType = (type: 'daily' | 'weekly' | 'interval') => {
-    setScheduleType(type)
-    setStep('config')
-  }
+  const manualSchema = selectedSkill ? filterManualFields(selectedSkill.input_schema) : null
+  const hasManualFields = manualSchema && Object.keys(manualSchema.properties || {}).length > 0
+
+  const weekdays = lang === 'zh' ? WEEKDAYS_ZH : WEEKDAYS_EN
+  const weekdaysFull = lang === 'zh' ? WEEKDAY_FULL_ZH : WEEKDAY_FULL_EN
+
+  const scheduleDisplay = (() => {
+    if (scheduleType === 'daily') return `${t.daily}  ${hour}:${minute}`
+    if (scheduleType === 'weekly') return `${weekdaysFull[weekday]}  ${hour}:${minute}`
+    const h = Math.round(intervalMinutes / 60)
+    return lang === 'zh' ? `每 ${h} 小时` : `Every ${h} hours`
+  })()
 
   const handleSave = async () => {
+    if (!selectedSkill) { showModal(t.errorTitle, t.selectSkill); return }
     setSaving(true)
     try {
-      const rule: AutomationRule = {
+      const rule: any = {
         id: editRule?.id || generateRuleId(),
-        skillId: editRule?.skillId || selectedSkill!.id,
-        skillName: editRule?.skillName || selectedSkill!.name,
+        skillId: selectedSkill.id,
+        skillName: selectedSkill.name,
         schedule: {
           type: scheduleType,
           ...(scheduleType !== 'interval' && { time: `${hour}:${minute}` }),
@@ -101,193 +152,214 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
         enabled: editRule?.enabled ?? true,
         lastRun: editRule?.lastRun,
         createdAt: editRule?.createdAt || new Date().toISOString(),
+        inputValues: hasManualFields ? inputValues : undefined,
       }
       await saveRule(rule)
       navigation.goBack()
     } catch (e: any) {
-      showModal(t.errorTitle, e.message)
+      // Permission modal already shown by scheduleRule, don't show another
+      if (e?.message !== 'EXACT_ALARM_PERMISSION_DENIED') {
+        showModal(t.errorTitle, e.message)
+      }
     } finally {
       setSaving(false)
     }
   }
 
-  const weekdays = lang === 'zh' ? WEEKDAYS_ZH : WEEKDAYS_EN
+  if (loadingSkills) {
+    return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
+  }
 
   return (
     <View style={s.container}>
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => {
-          if (step === 'skill' || (editRule && step === 'type')) {
-            navigation.goBack()
-          } else if (step === 'type') {
-            setStep('skill')
-          } else if (step === 'config') {
-            setStep('type')
-          }
-        }} activeOpacity={0.6}>
-          <Text style={s.backBtn}>{t.back}</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.6} style={s.headerBack}>
+          <Text style={s.headerBackIcon}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={s.headerTitle}>{editRule ? t.editAutomation : t.createAutomation}</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView style={s.body} contentContainerStyle={s.bodyContent} showsVerticalScrollIndicator={false}>
-        {/* Step 1: Pick a skill */}
-        {step === 'skill' && (
+      <ScrollView
+        style={s.body}
+        contentContainerStyle={[s.bodyContent, { paddingBottom: kbHeight > 0 ? kbHeight + 20 : 40 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
+
+        {/* ── Skill Selection ── */}
+        {!selectedSkill ? (
           <>
+            <Text style={s.stepNum}>01</Text>
             <Text style={s.stepTitle}>{t.selectSkill}</Text>
-            {loadingSkills ? (
-              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
-            ) : (
-              skills.map(skill => (
-                <TouchableOpacity
-                  key={skill.id}
-                  style={s.skillRow}
-                  activeOpacity={0.7}
-                  onPress={() => handleSelectSkill(skill)}>
-                  <View style={s.skillDot} />
-                  <View style={s.skillInfo}>
-                    <Text style={s.skillName} numberOfLines={1}>{skill.name}</Text>
-                    {skill.description ? (
-                      <Text style={s.skillDesc} numberOfLines={2}>{skill.description}</Text>
-                    ) : null}
+            <Text style={s.stepHint}>{lang === 'zh' ? '选择一个 AI 技能进行自动化' : 'Choose an AI skill to automate'}</Text>
+            {skills.map((skill, i) => (
+              <TouchableOpacity
+                key={skill.id}
+                style={s.skillCard}
+                onPress={() => { setSelectedSkill(skill); setInputValues({}); setPickedFiles({}) }}
+                activeOpacity={0.8}>
+                <View style={[s.skillAccent, { backgroundColor: ['#3b82f6', '#8b5cf6', '#f97316', '#10b981', '#ec4899', '#06b6d4'][i % 6] }]} />
+                <View style={s.skillBody}>
+                  <Text style={s.skillName} numberOfLines={1}>{skill.name}</Text>
+                  {skill.description ? <Text style={s.skillDesc} numberOfLines={2}>{skill.description}</Text> : null}
+                  <View style={s.skillMeta}>
+                    <Text style={s.skillPrice}>{skill.price_credits} {t.credits}/{lang === 'zh' ? '次' : 'run'}</Text>
+                    {skill.call_count > 0 && <Text style={s.skillCalls}>{skill.call_count} {t.calls}</Text>}
                   </View>
-                  <Text style={s.skillPrice}>{skill.price_credits} cr</Text>
-                </TouchableOpacity>
-              ))
-            )}
+                </View>
+              </TouchableOpacity>
+            ))}
           </>
-        )}
+        ) : (
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
 
-        {/* Step 2: Pick schedule type */}
-        {step === 'type' && (
-          <>
-            <Text style={s.stepTitle}>{t.selectSchedule}</Text>
-            <View style={s.typeGrid}>
-              {(['daily', 'weekly', 'interval'] as const).map(type => (
-                <TouchableOpacity
-                  key={type}
-                  style={[s.typeCard, scheduleType === type && step === 'config' && s.typeCardActive]}
-                  activeOpacity={0.7}
-                  onPress={() => handleSelectType(type)}>
-                  <Text style={s.typeIcon}>
-                    {type === 'daily' ? '( )' : type === 'weekly' ? '[ ]' : '{ }'}
-                  </Text>
-                  <Text style={s.typeLabel}>
-                    {type === 'daily' ? t.daily : type === 'weekly' ? t.weekly : t.everyXHours}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* ── Selected Skill Card ── */}
+            <View style={s.selectedCard}>
+              <View style={s.selectedTop}>
+                <View style={s.selectedDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.selectedName}>{selectedSkill.name}</Text>
+                  {selectedSkill.description ? <Text style={s.selectedDesc} numberOfLines={2}>{selectedSkill.description}</Text> : null}
+                </View>
+              </View>
+              <View style={s.selectedPriceRow}>
+                <Text style={s.selectedPriceLabel}>{lang === 'zh' ? '每次消耗' : 'Cost per run'}</Text>
+                <Text style={s.selectedPriceValue}>{selectedSkill.price_credits} <Text style={s.selectedPriceUnit}>{t.credits}</Text></Text>
+              </View>
             </View>
-          </>
-        )}
 
-        {/* Step 3: Configure schedule */}
-        {step === 'config' && (
-          <>
-            {/* Schedule type summary */}
-            <Text style={s.stepTitle}>
-              {scheduleType === 'daily' ? t.selectTime : scheduleType === 'weekly' ? t.selectDay : t.selectInterval}
-            </Text>
-
-            {/* Time picker for daily / weekly */}
-            {scheduleType !== 'interval' && (
-              <>
-                <Text style={s.pickerLabel}>{t.selectTime}</Text>
-                <View style={s.timePickerRow}>
-                  {/* Hour */}
-                  <View style={s.pickerColumn}>
-                    <ScrollView style={s.pickerScroll} showsVerticalScrollIndicator={false}>
-                      {HOURS.map(h => (
-                        <TouchableOpacity
-                          key={h}
-                          style={[s.pickerItem, hour === h && s.pickerItemActive]}
-                          onPress={() => setHour(h)}
-                          activeOpacity={0.6}>
-                          <Text style={[s.pickerItemText, hour === h && s.pickerItemTextActive]}>{h}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                  <Text style={s.pickerColon}>:</Text>
-                  {/* Minute */}
-                  <View style={s.pickerColumn}>
-                    <ScrollView style={s.pickerScroll} showsVerticalScrollIndicator={false}>
-                      {MINUTES.map(m => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[s.pickerItem, minute === m && s.pickerItemActive]}
-                          onPress={() => setMinute(m)}
-                          activeOpacity={0.6}>
-                          <Text style={[s.pickerItemText, minute === m && s.pickerItemTextActive]}>{m}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                </View>
-              </>
-            )}
-
-            {/* Day picker for weekly */}
-            {scheduleType === 'weekly' && (
-              <>
-                <Text style={[s.pickerLabel, { marginTop: 20 }]}>{t.selectDay}</Text>
-                <View style={s.dayGrid}>
-                  {weekdays.map((d, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      style={[s.dayChip, weekday === i && s.dayChipActive]}
-                      onPress={() => setWeekday(i)}
-                      activeOpacity={0.6}>
-                      <Text style={[s.dayChipText, weekday === i && s.dayChipTextActive]}>{d}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* Interval picker */}
-            {scheduleType === 'interval' && (
-              <View style={s.intervalGrid}>
-                {INTERVAL_OPTIONS.map(opt => (
+            {/* ── Schedule Type ── */}
+            <Text style={s.label}>{t.selectSchedule}</Text>
+            <View style={s.pillRow}>
+              {(['daily', 'weekly', 'interval'] as const).map(type => {
+                const active = scheduleType === type
+                return (
                   <TouchableOpacity
-                    key={opt.minutes}
-                    style={[s.intervalChip, intervalMinutes === opt.minutes && s.intervalChipActive]}
-                    onPress={() => setIntervalMinutes(opt.minutes)}
-                    activeOpacity={0.6}>
-                    <Text style={[s.intervalChipText, intervalMinutes === opt.minutes && s.intervalChipTextActive]}>
-                      {opt.label}
+                    key={type}
+                    style={[s.pill, active && s.pillActive]}
+                    onPress={() => setScheduleType(type)}
+                    activeOpacity={0.7}>
+                    <Text style={[s.pillText, active && s.pillTextActive]}>
+                      {type === 'daily' ? t.daily : type === 'weekly' ? t.weekly : (lang === 'zh' ? '定时' : 'Interval')}
                     </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            {/* ── Time Picker ── */}
+            {scheduleType !== 'interval' && (
+              <View style={s.timeCard}>
+                <Text style={s.timeDisplay}>{hour}:{minute}</Text>
+                <View style={s.timeSection}>
+                  <Text style={s.timeSubLabel}>{lang === 'zh' ? '小时' : 'Hour'}</Text>
+                  <ScrollView ref={hourScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipScroll}>
+                    {HOURS.map(h => (
+                      <TouchableOpacity key={h} style={[s.chip, hour === h && s.chipActive]} onPress={() => setHour(h)} activeOpacity={0.7}>
+                        <Text style={[s.chipText, hour === h && s.chipTextActive]}>{h}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={s.timeSection}>
+                  <Text style={s.timeSubLabel}>{lang === 'zh' ? '分钟' : 'Minute'}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipScroll}>
+                    {MINUTES.map(m => (
+                      <TouchableOpacity key={m} style={[s.chip, minute === m && s.chipActive]} onPress={() => setMinute(m)} activeOpacity={0.7}>
+                        <Text style={[s.chipText, minute === m && s.chipTextActive]}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+            )}
+
+            {/* ── Weekday Picker ── */}
+            {scheduleType === 'weekly' && (
+              <View style={s.weekRow}>
+                {weekdays.map((d, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[s.weekCell, weekday === i && s.weekCellActive]}
+                    onPress={() => setWeekday(i)}
+                    activeOpacity={0.7}>
+                    <Text style={[s.weekCellText, weekday === i && s.weekCellTextActive]}>{d}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             )}
 
-            {/* Summary */}
+            {/* ── Interval Picker ── */}
+            {scheduleType === 'interval' && (
+              <View style={s.intervalCard}>
+                {INTERVAL_OPTIONS.map(opt => {
+                  const active = intervalMinutes === opt.minutes
+                  return (
+                    <TouchableOpacity
+                      key={opt.minutes}
+                      style={[s.intervalItem, active && s.intervalItemActive]}
+                      onPress={() => setIntervalMinutes(opt.minutes)}
+                      activeOpacity={0.7}>
+                      <Text style={[s.intervalValue, active && s.intervalValueActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )}
+
+            {/* ── Preset Parameters ── */}
+            {hasManualFields && (
+              <View style={s.paramsCard}>
+                <View style={s.paramsHeader}>
+                  <Text style={s.label}>{lang === 'zh' ? '预设参数' : 'Preset Parameters'}</Text>
+                </View>
+                <Text style={s.paramsHint}>
+                  {lang === 'zh' ? '自动化执行时使用以下参数，设备数据自动采集' : 'Used when automation runs. Device data collected automatically.'}
+                </Text>
+                <DynamicForm
+                  schema={manualSchema}
+                  values={inputValues}
+                  onChange={setInputValues}
+                  pickedFiles={pickedFiles}
+                  onFilePicked={handleFilePicked}
+                />
+              </View>
+            )}
+
+            {/* ── Summary + Save ── */}
             <View style={s.summaryCard}>
-              <Text style={s.summaryLabel}>{t.automationSummary}</Text>
-              <Text style={s.summarySkill}>{editRule?.skillName || selectedSkill?.name}</Text>
-              <Text style={s.summarySchedule}>
-                {scheduleType === 'daily' && `${t.daily} ${hour}:${minute}`}
-                {scheduleType === 'weekly' && `${weekdays[weekday]} ${hour}:${minute}`}
-                {scheduleType === 'interval' && `${t.everyXHours} (${INTERVAL_OPTIONS.find(o => o.minutes === intervalMinutes)?.label})`}
-              </Text>
+              <View style={s.summaryRow}>
+                <View style={s.summaryIconWrap}>
+                  <View style={s.summaryClockFace}>
+                    <View style={s.summaryClockHand} />
+                    <View style={s.summaryClockHandM} />
+                  </View>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.summarySchedule}>{scheduleDisplay}</Text>
+                  <Text style={s.summaryCost}>
+                    {selectedSkill.price_credits} {t.credits} / {lang === 'zh' ? '次' : 'run'}
+                  </Text>
+                </View>
+              </View>
             </View>
 
-            {/* Save button */}
             <TouchableOpacity
-              style={[s.saveBtn, saving && { opacity: 0.6 }]}
+              style={[s.saveBtnWrap, saving && { opacity: 0.6 }]}
               onPress={handleSave}
               disabled={saving}
-              activeOpacity={0.7}>
-              {saving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={s.saveBtnText}>{editRule ? t.updateAutomation : t.saveAutomation}</Text>
-              )}
+              activeOpacity={0.85}>
+              <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.saveBtn}>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={s.saveBtnText}>{editRule ? t.updateAutomation : t.saveAutomation}</Text>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
-          </>
+
+          </Animated.View>
         )}
       </ScrollView>
     </View>
@@ -296,246 +368,170 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.white,
-    paddingHorizontal: 16,
-    paddingTop: STATUS_BAR_HEIGHT + 8,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(37, 99, 235, 0.06)',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#fff', paddingHorizontal: 16,
+    paddingTop: STATUS_BAR_HEIGHT + 6, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(37, 99, 235, 0.06)',
   },
-  backBtn: {
-    fontSize: 15,
-    color: colors.primary,
-    fontWeight: fontWeight.semibold,
-    minWidth: 40,
+  headerBack: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: '#f1f5f9',
+    justifyContent: 'center', alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    letterSpacing: -0.3,
-  },
+  headerBackIcon: { fontSize: 22, color: colors.ink700, marginTop: -2 },
+  headerTitle: { fontSize: 17, fontWeight: fontWeight.bold, color: colors.ink950, letterSpacing: -0.3 },
+
   body: { flex: 1 },
-  bodyContent: { padding: 16, paddingBottom: 40 },
+  bodyContent: { padding: 16 },
 
-  // Steps
-  stepTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    marginBottom: 16,
-    letterSpacing: -0.3,
-  },
+  // Step indicator (skill select)
+  stepNum: { fontSize: 32, fontWeight: fontWeight.extrabold, color: 'rgba(37,99,235,0.12)', letterSpacing: -1 },
+  stepTitle: { fontSize: 22, fontWeight: fontWeight.bold, color: colors.ink950, marginTop: -4, marginBottom: 4, letterSpacing: -0.5 },
+  stepHint: { fontSize: 13, color: colors.ink500, marginBottom: 18 },
 
-  // Skill list
-  skillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    padding: 14,
-    marginBottom: 8,
+  // Skill cards (selection list)
+  skillCard: {
+    flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)',
+    marginBottom: 10, overflow: 'hidden',
   },
-  skillDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-    marginRight: 12,
-  },
-  skillInfo: { flex: 1, marginRight: 10 },
-  skillName: {
-    fontSize: 14,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink950,
-  },
-  skillDesc: {
-    fontSize: 12,
-    color: colors.ink500,
-    marginTop: 2,
-  },
-  skillPrice: {
-    fontSize: 12,
-    color: colors.ink600,
-    fontWeight: fontWeight.semibold,
-  },
+  skillAccent: { width: 4, borderTopLeftRadius: 14, borderBottomLeftRadius: 14 },
+  skillBody: { flex: 1, padding: 14 },
+  skillName: { fontSize: 15, fontWeight: fontWeight.semibold, color: colors.ink950 },
+  skillDesc: { fontSize: 12, color: colors.ink500, marginTop: 3, lineHeight: 17 },
+  skillMeta: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  skillPrice: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.primary },
+  skillCalls: { fontSize: 11, color: colors.ink400 },
 
-  // Type grid
-  typeGrid: {
-    flexDirection: 'row',
-    gap: 10,
+  // Selected skill card
+  selectedCard: {
+    backgroundColor: '#fff', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.1)',
+    marginBottom: 20, overflow: 'hidden',
   },
-  typeCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    padding: 20,
-    alignItems: 'center',
+  selectedTop: { flexDirection: 'row', alignItems: 'flex-start', padding: 16, paddingBottom: 12 },
+  selectedDot: {
+    width: 10, height: 10, borderRadius: 5, backgroundColor: '#059669',
+    marginRight: 12, marginTop: 5,
   },
-  typeCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#eff6ff',
+  selectedName: { fontSize: 16, fontWeight: fontWeight.bold, color: colors.ink950 },
+  selectedDesc: { fontSize: 12, color: colors.ink500, marginTop: 3, lineHeight: 17 },
+  changeLink: { fontSize: 13, color: colors.primary, fontWeight: fontWeight.semibold },
+  selectedPriceRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: 'rgba(37,99,235,0.06)',
+    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fafbfc',
   },
-  typeIcon: {
-    fontSize: 20,
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-    marginBottom: 8,
-  },
-  typeLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink700,
-    textAlign: 'center',
+  selectedPriceLabel: { fontSize: 12, color: colors.ink500 },
+  selectedPriceValue: { fontSize: 16, fontWeight: fontWeight.extrabold, color: colors.primary },
+  selectedPriceUnit: { fontSize: 12, fontWeight: fontWeight.medium, color: colors.ink500 },
+
+  // Labels
+  label: {
+    fontSize: 12, fontWeight: fontWeight.bold, color: colors.ink500,
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10,
   },
 
-  // Time picker
-  pickerLabel: {
-    fontSize: 14,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink700,
-    marginBottom: 10,
+  // Schedule type pills
+  pillRow: {
+    flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 12, padding: 3, marginBottom: 18,
   },
-  timePickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+  pill: {
+    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
   },
-  pickerColumn: {
-    width: 70,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    overflow: 'hidden',
-  },
-  pickerScroll: {
-    maxHeight: 200,
-  },
-  pickerItem: {
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  pickerItemActive: {
-    backgroundColor: colors.primary,
-  },
-  pickerItemText: {
-    fontSize: 16,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink700,
-  },
-  pickerItemTextActive: {
-    color: '#fff',
-  },
-  pickerColon: {
-    fontSize: 24,
-    fontWeight: fontWeight.bold,
-    color: colors.ink700,
-  },
+  pillActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3, elevation: 2 },
+  pillText: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.ink500 },
+  pillTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
 
-  // Day picker
-  dayGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  // Time card
+  timeCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)', marginBottom: 14,
   },
-  dayChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+  timeDisplay: {
+    fontSize: 40, fontWeight: fontWeight.extrabold, color: colors.ink950,
+    textAlign: 'center', letterSpacing: -2, marginBottom: 16,
   },
-  dayChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  timeSection: { marginBottom: 12 },
+  timeSubLabel: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.ink400, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+
+  // Chips (hour/minute)
+  chipScroll: { gap: 6 },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)',
   },
-  dayChipText: {
-    fontSize: 13,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink700,
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink600 },
+  chipTextActive: { color: '#fff' },
+
+  // Weekday
+  weekRow: {
+    flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18, gap: 6,
   },
-  dayChipTextActive: {
-    color: '#fff',
+  weekCell: {
+    flex: 1, aspectRatio: 1, borderRadius: 12,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)',
+    justifyContent: 'center', alignItems: 'center',
   },
+  weekCellActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  weekCellText: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.ink600 },
+  weekCellTextActive: { color: '#fff' },
 
   // Interval
-  intervalGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+  intervalCard: {
+    flexDirection: 'row', gap: 8, marginBottom: 18,
   },
-  intervalChip: {
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+  intervalItem: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 14,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)',
+    paddingVertical: 16, alignItems: 'center',
   },
-  intervalChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  intervalItemActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  intervalValue: { fontSize: 18, fontWeight: fontWeight.extrabold, color: colors.ink700 },
+  intervalValueActive: { color: '#fff' },
+
+  // Params
+  paramsCard: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.06)', marginBottom: 14,
   },
-  intervalChipText: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
-    color: colors.ink700,
-  },
-  intervalChipTextActive: {
-    color: '#fff',
-  },
+  paramsHeader: { marginBottom: 4 },
+  paramsHint: { fontSize: 12, color: colors.ink400, marginBottom: 14, lineHeight: 17 },
 
   // Summary
   summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    padding: 18,
-    marginTop: 24,
-    marginBottom: 20,
+    backgroundColor: '#f0f7ff', borderRadius: 14,
+    padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: 'rgba(37,99,235,0.1)',
   },
-  summaryLabel: {
-    fontSize: 11,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink500,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 8,
+  summaryRow: { flexDirection: 'row', alignItems: 'center' },
+  summaryIconWrap: {
+    width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(37,99,235,0.12)',
+    justifyContent: 'center', alignItems: 'center', marginRight: 14,
   },
-  summarySkill: {
-    fontSize: 15,
-    fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    marginBottom: 4,
+  summaryClockFace: {
+    width: 22, height: 22, borderRadius: 11,
+    borderWidth: 2.5, borderColor: colors.primary,
+    justifyContent: 'center', alignItems: 'center',
   },
-  summarySchedule: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: fontWeight.semibold,
+  summaryClockHand: {
+    position: 'absolute', width: 2, height: 7, backgroundColor: colors.primary,
+    borderRadius: 1, bottom: '50%', left: '50%', marginLeft: -1,
   },
+  summaryClockHandM: {
+    position: 'absolute', width: 2, height: 5, backgroundColor: colors.primary,
+    borderRadius: 1, bottom: '50%', left: '50%', marginLeft: -1,
+    transform: [{ rotate: '90deg' }, { translateY: -2.5 }],
+  },
+  summarySchedule: { fontSize: 15, fontWeight: fontWeight.bold, color: colors.ink950 },
+  summaryCost: { fontSize: 12, color: colors.ink500, marginTop: 2 },
 
   // Save
-  saveBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  saveBtnText: {
-    fontSize: 15,
-    fontWeight: fontWeight.bold,
-    color: '#fff',
-  },
+  saveBtnWrap: { borderRadius: 14, overflow: 'hidden' },
+  saveBtn: { paddingVertical: 16, alignItems: 'center', borderRadius: 14 },
+  saveBtnText: { fontSize: 15, fontWeight: fontWeight.bold, color: '#fff' },
 })

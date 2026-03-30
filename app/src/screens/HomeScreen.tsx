@@ -20,6 +20,7 @@ import { fetchWallet, fetchSkills, fetchCalls, type Skill } from '../services/ap
 import { useCachedData } from '../hooks/useCachedData'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
+import { getRules, type AutomationRule } from '../services/automationService'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -60,9 +61,17 @@ export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth()
   const { t, lang } = useI18n()
   const { pinned, rename, unpin } = usePinnedApis()
+  const [automations, setAutomations] = useState<AutomationRule[]>([])
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renamingApi, setRenamingApi] = useState<any>(null)
   const [renameText, setRenameText] = useState('')
+
+  useEffect(() => { getRules().then(setAutomations) }, [])
+  // Refresh automations when coming back from AutomationsScreen
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => { getRules().then(setAutomations) })
+    return unsub
+  }, [navigation])
 
   const walletFetcher = useCallback(() => fetchWallet(), [])
   const skillsFetcher = useCallback(async () => {
@@ -171,6 +180,36 @@ export default function HomeScreen({ navigation }: any) {
             </View>
           </View>
         )}
+
+        {/* Automations */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t.automations}</Text>
+            {automations.filter(a => a.enabled).length > 0 ? (
+              <TouchableOpacity onPress={() => navigation.navigate('Automations')}>
+                <Text style={styles.seeAll}>{lang === 'zh' ? '管理' : 'Manage'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {automations.filter(a => a.enabled).length > 0 ? (
+            automations.filter(a => a.enabled).slice(0, 3).map(rule => (
+              <View key={rule.id} style={styles.autoRow}>
+                <View style={styles.autoDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.autoName} numberOfLines={1}>{rule.skillName}</Text>
+                  <Text style={styles.autoSchedule}>
+                    {rule.schedule.type === 'daily' ? `${t.daily} ${rule.schedule.time}` :
+                     rule.schedule.type === 'weekly' ? `${t.weekly} ${rule.schedule.time}` :
+                     `${t.everyXHours.replace('X', String(Math.round((rule.schedule.intervalMinutes || 60) / 60)))}` }
+                    {rule.lastRun ? ` · ${t.lastRun} ${new Date(rule.lastRun).toLocaleDateString('zh-CN')}` : ''}
+                  </Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.autoEmpty}>{t.noAutomations}</Text>
+          )}
+        </View>
 
         {/* Recent Calls */}
         {recentCalls.length > 0 && (
@@ -588,5 +627,36 @@ const styles = StyleSheet.create({
   apiRowArrow: {
     fontSize: 20,
     color: '#cbd5e1',
+  },
+
+  // Automations
+  autoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  autoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#059669',
+    marginRight: 12,
+  },
+  autoName: {
+    fontSize: 14,
+    fontWeight: fontWeight.semibold,
+    color: colors.ink950,
+  },
+  autoSchedule: {
+    fontSize: 11,
+    color: colors.ink500,
+    marginTop: 2,
+  },
+  autoEmpty: {
+    fontSize: 13,
+    color: colors.ink400,
+    textAlign: 'center',
+    paddingVertical: 12,
   },
 })

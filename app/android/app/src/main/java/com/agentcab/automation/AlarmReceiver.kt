@@ -7,7 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import com.facebook.react.HeadlessJsTaskService
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
@@ -21,62 +25,54 @@ class AlarmReceiver : BroadcastReceiver() {
         val ruleId = intent.getStringExtra("ruleId") ?: return
         Log.d(TAG, "Alarm fired for rule: $ruleId")
 
-        // Reschedule the next occurrence (since we use one-shot exact alarms)
+        // Reschedule next occurrence
         rescheduleNext(context, ruleId)
 
-        // Try to send event to JS if app is running
+        // Check if React context is available (app running)
         try {
             val reactApp = context.applicationContext as? com.facebook.react.ReactApplication
-            val reactHost = reactApp?.reactHost
-            val reactInstance = reactHost?.currentReactContext
+            val reactContext = reactApp?.reactHost?.currentReactContext
 
-            if (reactInstance != null) {
-                reactInstance
+            if (reactContext != null) {
+                // App running — send JS event directly
+                reactContext
                     .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                     ?.emit("onAutomationAlarm", Arguments.createMap().apply {
                         putString("ruleId", ruleId)
                     })
                 Log.d(TAG, "Sent JS event for rule: $ruleId")
-            } else {
-                // App not running — launch it with the ruleId
-                Log.d(TAG, "App not running, launching with ruleId: $ruleId")
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    putExtra("automationRuleId", ruleId)
-                }
-                if (launchIntent != null) {
-                    context.startActivity(launchIntent)
-                }
+                return
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error handling alarm", e)
-            // Fallback: launch app
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("automationRuleId", ruleId)
-            }
-            if (launchIntent != null) {
-                context.startActivity(launchIntent)
-            }
+            Log.w(TAG, "Failed to send JS event: ${e.message}")
         }
+
+        // App not running — use WorkManager to start HeadlessJS via ForegroundService
+        Log.d(TAG, "App not running, enqueuing WorkManager for rule: $ruleId")
+
+        val workRequest = OneTimeWorkRequestBuilder<AutomationWorker>()
+            .setInputData(Data.Builder().putString("ruleId", ruleId).build())
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork("automation_$ruleId", ExistingWorkPolicy.REPLACE, workRequest)
     }
 
     private fun rescheduleNext(context: Context, ruleId: String) {
         val prefs = context.getSharedPreferences("automation_alarms", Context.MODE_PRIVATE)
         val interval = prefs.getLong("${ruleId}_interval", 0)
-        if (interval <= 0) return // One-shot alarm, no rescheduling
+        if (interval <= 0) return
 
         val nextTrigger = System.currentTimeMillis() + interval
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val intent = Intent(context, AlarmReceiver::class.java).apply {
+        val alarmIntent = Intent(context, AlarmReceiver::class.java).apply {
             action = "com.agentcab.AUTOMATION_ALARM"
             putExtra("ruleId", ruleId)
         }
         val pi = PendingIntent.getBroadcast(
-            context,
-            ruleId.hashCode(),
-            intent,
+            context, ruleId.hashCode(), alarmIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -86,7 +82,6 @@ class AlarmReceiver : BroadcastReceiver() {
             am.setExact(AlarmManager.RTC_WAKEUP, nextTrigger, pi)
         }
 
-        // Update stored trigger time
         prefs.edit().putLong("${ruleId}_trigger", nextTrigger).apply()
     }
 }
