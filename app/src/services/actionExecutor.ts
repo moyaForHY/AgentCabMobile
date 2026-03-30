@@ -3,17 +3,19 @@
  * Executes structured actions returned by APIs.
  * See DEVICE_PROTOCOL.md for the full action spec.
  */
-import { Alert, Linking } from 'react-native'
+import { Alert, Linking, NativeModules } from 'react-native'
 import * as FileSystem from './fileSystem'
 import { deletePhoto } from './photoScanner'
 import * as Calendar from './calendar'
 import * as AppList from './appList'
 import * as Notifications from './notifications'
 import * as Accessibility from './accessibility'
-import { writeClipboard, shareText, shareFile } from './deviceCapabilities'
+import { writeClipboard, shareText, shareFile, takePhoto } from './deviceCapabilities'
 import { downloadToDevice } from './fileDownloader'
 import { setWallpaper } from './screenshot'
 import { saveContact } from './contacts'
+
+const { DeviceInfoManager } = NativeModules
 
 export type Action = {
   type: string
@@ -316,6 +318,119 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
       case 'open_notifications':
         await Accessibility.openNotifications()
         return ok(action.type)
+
+      // ── Device Settings ──
+      case 'set_brightness':
+        return await withConfirm(
+          `Set brightness to ${action.level}?`,
+          () => DeviceInfoManager.setBrightness(action.level),
+          action.type,
+        )
+
+      case 'set_volume':
+        return await withConfirm(
+          `Set ${action.stream || 'media'} volume to ${action.level}?`,
+          () => DeviceInfoManager.setVolume(action.stream || 'media', action.level),
+          action.type,
+        )
+
+      case 'toggle_wifi':
+        return await withConfirm(
+          `Open Wi-Fi settings to ${action.enabled ? 'enable' : 'disable'} Wi-Fi?`,
+          async () => {
+            try {
+              await Linking.openURL('android.settings.panel://com.android.settings.panel.action.WIFI')
+            } catch {
+              // Fallback to standard wifi settings
+              await Linking.openURL('android.settings.WIFI_SETTINGS')
+            }
+          },
+          action.type,
+        )
+
+      case 'toggle_bluetooth':
+        return await withConfirm(
+          `Open Bluetooth settings to ${action.enabled ? 'enable' : 'disable'} Bluetooth?`,
+          async () => {
+            try {
+              await Linking.openURL('android.settings.BLUETOOTH_SETTINGS')
+            } catch {
+              throw new Error('Could not open Bluetooth settings.')
+            }
+          },
+          action.type,
+        )
+
+      case 'save_to_gallery': {
+        const filename = action.filename || action.url.split('/').pop() || `download_${Date.now()}`
+        const downloadedPath = await downloadToDevice(action.url, filename)
+        if (!downloadedPath) {
+          return { type: action.type, success: false, error: 'Failed to download file.' }
+        }
+        try {
+          await DeviceInfoManager.scanFile(downloadedPath)
+        } catch {
+          // Media scan failed but file was downloaded
+        }
+        return ok(action.type)
+      }
+
+      case 'open_settings': {
+        const settingsMap: Record<string, string> = {
+          wifi: 'android.settings.WIFI_SETTINGS',
+          bluetooth: 'android.settings.BLUETOOTH_SETTINGS',
+          display: 'android.settings.DISPLAY_SETTINGS',
+          sound: 'android.settings.SOUND_SETTINGS',
+          battery: 'android.intent.action.POWER_USAGE_SUMMARY',
+          storage: 'android.settings.INTERNAL_STORAGE_SETTINGS',
+          apps: 'android.settings.APPLICATION_SETTINGS',
+          location: 'android.settings.LOCATION_SOURCE_SETTINGS',
+          security: 'android.settings.SECURITY_SETTINGS',
+          accessibility: 'android.settings.ACCESSIBILITY_SETTINGS',
+        }
+        const settingsAction = action.page ? settingsMap[action.page] : undefined
+        try {
+          if (settingsAction) {
+            await Linking.openURL(settingsAction)
+          } else {
+            await Linking.openURL('android.settings.SETTINGS')
+          }
+          return ok(action.type)
+        } catch {
+          return { type: action.type, success: false, error: `Could not open settings${action.page ? ` (${action.page})` : ''}.` }
+        }
+      }
+
+      case 'record_audio':
+        try {
+          await Linking.openURL('android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION')
+        } catch {
+          try {
+            // Fallback: open sound recorder via generic intent
+            await Linking.openURL('android.intent.action.MAIN')
+          } catch {
+            return { type: action.type, success: false, error: 'No voice recorder app found.' }
+          }
+        }
+        return ok(action.type)
+
+      case 'take_photo': {
+        const photo = await takePhoto()
+        if (!photo) {
+          return { type: action.type, success: false, error: 'Photo capture cancelled or failed.' }
+        }
+        return { type: action.type, success: true }
+      }
+
+      case 'create_note': {
+        const timestamp = Date.now()
+        const noteFilename = `note_${timestamp}.txt`
+        const dirs = await FileSystem.getDirectories()
+        const notePath = `${dirs.documents}/${noteFilename}`
+        const noteContent = action.title ? `${action.title}\n\n${action.content}` : action.content
+        await FileSystem.writeTextFile(notePath, noteContent)
+        return ok(action.type)
+      }
 
       // ── Composite ──
       case 'confirm_actions':

@@ -1,13 +1,21 @@
 package com.agentcab.deviceinfo
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.Cursor
 import android.location.LocationManager
 import android.media.AudioManager
+import android.media.MediaScannerConnection
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
+import android.provider.MediaStore
+import android.provider.Settings
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
 
@@ -122,6 +130,243 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("MEDIA_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getAudioFiles(limit: Int, promise: Promise) {
+        try {
+            val audioList = WritableNativeArray()
+            val projection = arrayOf(
+                MediaStore.Audio.Media.DISPLAY_NAME,
+                MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.MIME_TYPE,
+            )
+            val sortOrder = "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+            val cursor: Cursor? = reactApplicationContext.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                sortOrder
+            )
+            cursor?.use {
+                var count = 0
+                while (it.moveToNext() && count < limit) {
+                    val item = WritableNativeMap().apply {
+                        putString("name", it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)) ?: "")
+                        putString("path", it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)) ?: "")
+                        putDouble("duration", (it.getLong(it.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION))).toDouble())
+                        putDouble("size", (it.getLong(it.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE))).toDouble())
+                        putString("artist", it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)))
+                        putString("album", it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)))
+                        putString("mimeType", it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)) ?: "")
+                    }
+                    audioList.pushMap(item)
+                    count++
+                }
+            }
+            promise.resolve(audioList)
+        } catch (e: Exception) {
+            promise.reject("AUDIO_FILES_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getVideoFiles(limit: Int, promise: Promise) {
+        try {
+            val videoList = WritableNativeArray()
+            val projection = arrayOf(
+                MediaStore.Video.Media.DISPLAY_NAME,
+                MediaStore.Video.Media.DATA,
+                MediaStore.Video.Media.DURATION,
+                MediaStore.Video.Media.SIZE,
+                MediaStore.Video.Media.WIDTH,
+                MediaStore.Video.Media.HEIGHT,
+                MediaStore.Video.Media.MIME_TYPE,
+            )
+            val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+            val cursor: Cursor? = reactApplicationContext.contentResolver.query(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                sortOrder
+            )
+            cursor?.use {
+                var count = 0
+                while (it.moveToNext() && count < limit) {
+                    val item = WritableNativeMap().apply {
+                        putString("name", it.getString(it.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)) ?: "")
+                        putString("path", it.getString(it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)) ?: "")
+                        putDouble("duration", (it.getLong(it.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION))).toDouble())
+                        putDouble("size", (it.getLong(it.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE))).toDouble())
+                        putInt("width", it.getInt(it.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)))
+                        putInt("height", it.getInt(it.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)))
+                        putString("mimeType", it.getString(it.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)) ?: "")
+                    }
+                    videoList.pushMap(item)
+                    count++
+                }
+            }
+            promise.resolve(videoList)
+        } catch (e: Exception) {
+            promise.reject("VIDEO_FILES_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getBluetoothInfo(promise: Promise) {
+        try {
+            val bluetoothManager = reactApplicationContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            val adapter: BluetoothAdapter? = bluetoothManager?.adapter
+
+            if (adapter == null) {
+                promise.resolve(WritableNativeMap().apply {
+                    putBoolean("enabled", false)
+                    putArray("pairedDevices", WritableNativeArray())
+                })
+                return
+            }
+
+            val result = WritableNativeMap()
+            result.putBoolean("enabled", adapter.isEnabled)
+
+            val pairedDevices = WritableNativeArray()
+            try {
+                @Suppress("MissingPermission")
+                val bonded = adapter.bondedDevices
+                bonded?.forEach { device: BluetoothDevice ->
+                    @Suppress("MissingPermission")
+                    val deviceMap = WritableNativeMap().apply {
+                        putString("name", device.name ?: "Unknown")
+                        putString("address", device.address)
+                        putInt("type", device.type)
+                    }
+                    pairedDevices.pushMap(deviceMap)
+                }
+            } catch (_: SecurityException) {
+                // BLUETOOTH_CONNECT permission not granted
+            }
+            result.putArray("pairedDevices", pairedDevices)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("BLUETOOTH_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getBrightness(promise: Promise) {
+        try {
+            val brightness = Settings.System.getInt(
+                reactApplicationContext.contentResolver,
+                Settings.System.SCREEN_BRIGHTNESS,
+                128
+            )
+            val brightnessMode = Settings.System.getInt(
+                reactApplicationContext.contentResolver,
+                Settings.System.SCREEN_BRIGHTNESS_MODE,
+                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            val result = WritableNativeMap().apply {
+                putInt("brightness", brightness)
+                putBoolean("isAutomatic", brightnessMode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC)
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("BRIGHTNESS_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getVolumeInfo(promise: Promise) {
+        try {
+            val audioManager = reactApplicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val result = WritableNativeMap().apply {
+                putInt("media", audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
+                putInt("ring", audioManager.getStreamVolume(AudioManager.STREAM_RING))
+                putInt("notification", audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION))
+                putInt("alarm", audioManager.getStreamVolume(AudioManager.STREAM_ALARM))
+                putInt("maxMedia", audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC))
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("VOLUME_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setBrightness(level: Int, promise: Promise) {
+        try {
+            val ctx = reactApplicationContext
+            if (!Settings.System.canWrite(ctx)) {
+                // Open system settings to grant WRITE_SETTINGS permission
+                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:${ctx.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(intent)
+                promise.reject("WRITE_SETTINGS_REQUIRED", "Please grant 'Modify system settings' permission and try again.")
+                return
+            }
+            val clamped = level.coerceIn(0, 255)
+            // Switch to manual brightness mode
+            Settings.System.putInt(
+                ctx.contentResolver,
+                Settings.System.SCREEN_BRIGHTNESS_MODE,
+                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            )
+            Settings.System.putInt(
+                ctx.contentResolver,
+                Settings.System.SCREEN_BRIGHTNESS,
+                clamped
+            )
+            promise.resolve(clamped)
+        } catch (e: Exception) {
+            promise.reject("BRIGHTNESS_SET_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setVolume(stream: String, level: Int, promise: Promise) {
+        try {
+            val audioManager = reactApplicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val streamType = when (stream) {
+                "media" -> AudioManager.STREAM_MUSIC
+                "ring" -> AudioManager.STREAM_RING
+                "notification" -> AudioManager.STREAM_NOTIFICATION
+                "alarm" -> AudioManager.STREAM_ALARM
+                else -> AudioManager.STREAM_MUSIC
+            }
+            val maxVol = audioManager.getStreamMaxVolume(streamType)
+            val clamped = level.coerceIn(0, maxVol)
+            audioManager.setStreamVolume(streamType, clamped, 0)
+            promise.resolve(clamped)
+        } catch (e: Exception) {
+            promise.reject("VOLUME_SET_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun scanFile(path: String, promise: Promise) {
+        try {
+            MediaScannerConnection.scanFile(
+                reactApplicationContext,
+                arrayOf(path),
+                null
+            ) { scannedPath, uri ->
+                val result = WritableNativeMap().apply {
+                    putString("path", scannedPath)
+                    putString("uri", uri?.toString() ?: "")
+                }
+                promise.resolve(result)
+            }
+        } catch (e: Exception) {
+            promise.reject("SCAN_FILE_ERROR", e.message, e)
         }
     }
 

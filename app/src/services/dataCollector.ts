@@ -259,6 +259,69 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:notifications':
       return { available: false, reason: 'Notification access requires special permission. Go to Settings > Notification access to enable.' }
 
+    // ── Audio Files ──
+    case 'device:audio':
+      try {
+        if (!DeviceInfoManager) return []
+        return await withTimeout((async () => {
+          if (Platform.OS === 'android') {
+            const granted = await PermissionsAndroid.request(
+              'android.permission.READ_MEDIA_AUDIO' as any,
+            )
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return []
+          }
+          return await DeviceInfoManager.getAudioFiles(options?.limit || 200)
+        })(), COLLECT_TIMEOUT, [])
+      } catch { return [] }
+
+    // ── Video Files ──
+    case 'device:video':
+      try {
+        if (!DeviceInfoManager) return []
+        return await withTimeout((async () => {
+          if (Platform.OS === 'android') {
+            const granted = await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+            )
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return []
+          }
+          return await DeviceInfoManager.getVideoFiles(options?.limit || 200)
+        })(), COLLECT_TIMEOUT, [])
+      } catch { return [] }
+
+    // ── Health ──
+    case 'device:health':
+      return { available: false, reason: 'Health data requires Google Fit or Health Connect integration. Coming soon.' }
+
+    // ── Bluetooth ──
+    case 'device:bluetooth':
+      try {
+        if (!DeviceInfoManager) return { enabled: false, pairedDevices: [] }
+        return await withTimeout((async () => {
+          if (Platform.OS === 'android' && Platform.Version >= 31) {
+            const granted = await PermissionsAndroid.request(
+              'android.permission.BLUETOOTH_CONNECT' as any,
+            )
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return { enabled: false, pairedDevices: [] }
+          }
+          return await DeviceInfoManager.getBluetoothInfo()
+        })(), COLLECT_TIMEOUT, { enabled: false, pairedDevices: [] })
+      } catch { return { enabled: false, pairedDevices: [] } }
+
+    // ── Brightness ──
+    case 'device:brightness':
+      try {
+        if (!DeviceInfoManager) return { brightness: 0, isAutomatic: false }
+        return await withTimeout(DeviceInfoManager.getBrightness(), COLLECT_TIMEOUT, { brightness: 0, isAutomatic: false })
+      } catch { return { brightness: 0, isAutomatic: false } }
+
+    // ── Volume ──
+    case 'device:volume':
+      try {
+        if (!DeviceInfoManager) return { media: 0, ring: 0, notification: 0, alarm: 0, maxMedia: 0 }
+        return await withTimeout(DeviceInfoManager.getVolumeInfo(), COLLECT_TIMEOUT, { media: 0, ring: 0, notification: 0, alarm: 0, maxMedia: 0 })
+      } catch { return { media: 0, ring: 0, notification: 0, alarm: 0, maxMedia: 0 } }
+
     // ── Media Playing ──
     case 'device:media_playing':
       try {
