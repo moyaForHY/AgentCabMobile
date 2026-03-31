@@ -1,13 +1,14 @@
 /**
- * Global task poller — polls pending tasks every 5s regardless of which screen is active.
- * Emits EVENT_CALL_COMPLETED + EVENT_WALLET_CHANGED when tasks finish.
+ * Global task poller — uses AlarmManager to check pending tasks.
+ * Works even when MIUI freezes JS setInterval in background.
  */
-import { NativeModules } from 'react-native'
+import { NativeModules, DeviceEventEmitter } from 'react-native'
 import { fetchCalls, fetchCall } from './api'
-
-const AlarmSchedulerModule = NativeModules.AlarmSchedulerModule
+import { storage } from './storage'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from './events'
 import { executeActions, type Action } from './actionExecutor'
+
+const AlarmSchedulerModule = NativeModules.AlarmSchedulerModule
 
 const DANGEROUS_ACTIONS = new Set([
   'delete_file', 'delete_files', 'move_file',
@@ -15,16 +16,18 @@ const DANGEROUS_ACTIONS = new Set([
   'click_text', 'set_text', 'long_press',
 ])
 
-const POLL_INTERVAL = 5000
+const CHECK_INTERVAL_MS = 15000 // 15 seconds between checks
 const PENDING_STATUSES = ['pending', 'running', 'processing']
 
-let timer: ReturnType<typeof setInterval> | null = null
 let pendingIds: string[] = []
-let polling = false
+let checking = false
+let listenerRegistered = false
 
-async function poll() {
-  if (polling || pendingIds.length === 0) return
-  polling = true
+/** Single check — called by alarm or directly */
+async function checkOnce() {
+  if (checking || pendingIds.length === 0) return
+  checking = true
+  console.log(`[TaskPoller] checking ${pendingIds.length} pending tasks`)
   try {
     const results = await Promise.all(
       pendingIds.map(id => fetchCall(id).catch(() => null)),
@@ -39,7 +42,6 @@ async function poll() {
     }
 
     if (completed.length > 0) {
-      // Remove completed from pending list
       const completedIds = new Set(completed.map(c => c.id))
       pendingIds = pendingIds.filter(id => !completedIds.has(id))
 
@@ -50,83 +52,102 @@ async function poll() {
           status: c.status,
         })
 
-        // Auto-execute safe actions if present
+        // Auto-execute safe actions
         const output = c.output_data || c.output
+        console.log(`[TaskPoller] task ${c.id.slice(0, 8)} completed (${c.status}), actions: ${output?.actions?.length || 0}, output_data: ${!!c.output_data}, output: ${!!c.output}, keys: ${output ? Object.keys(output).join(',') : 'null'}`)
         if (output?.actions && Array.isArray(output.actions)) {
-          const allActions: Action[] = []
-          for (const action of output.actions) {
-            if (action.type === 'notify') {
-              // Auto-execute notify silently
-              executeActions([action], true).catch(() => {})
-            } else if ((action.type === 'confirm_actions' || action.type === 'sequence') && Array.isArray(action.actions)) {
-              // Flatten and filter safe actions
-              const safe = action.actions.filter((a: Action) => !DANGEROUS_ACTIONS.has(a.type))
-              if (safe.length > 0) executeActions(safe, true).catch(() => {})
-            } else if (!DANGEROUS_ACTIONS.has(action.type)) {
-              allActions.push(action)
+          try {
+            const allSafe: Action[] = []
+            const executedGroupIndices: number[] = []
+
+            for (let gi = 0; gi < output.actions.length; gi++) {
+              const action = output.actions[gi]
+              if (action.type === 'notify') {
+                try { await executeActions([action], true) } catch {}
+                executedGroupIndices.push(gi)
+              } else if ((action.type === 'confirm_actions' || action.type === 'sequence') && Array.isArray(action.actions)) {
+                const safe = action.actions.filter((a: Action) => !DANGEROUS_ACTIONS.has(a.type))
+                const hasDangerous = action.actions.some((a: Action) => DANGEROUS_ACTIONS.has(a.type))
+                if (safe.length > 0) allSafe.push(...safe)
+                // Only mark as executed if ALL sub-actions are safe
+                if (!hasDangerous && safe.length > 0) executedGroupIndices.push(gi)
+              } else if (!DANGEROUS_ACTIONS.has(action.type)) {
+                allSafe.push(action)
+                executedGroupIndices.push(gi)
+              }
             }
+            if (allSafe.length > 0) {
+              console.log(`[TaskPoller] auto-executing ${allSafe.length} safe actions`)
+              await executeActions(allSafe, true)
+            }
+            // Only mark actually executed groups, leave dangerous ones for user confirmation
+            if (executedGroupIndices.length > 0) {
+              storage.setString(`actions_executed_${c.id}`, JSON.stringify(executedGroupIndices))
+            }
+          } catch (e: any) {
+            console.log(`[TaskPoller] auto-execute failed: ${e.message}`)
           }
-          if (allActions.length > 0) executeActions(allActions, true).catch(() => {})
         }
       }
       events.emit(EVENT_WALLET_CHANGED)
     }
 
-    // Stop timer if nothing left to poll
-    if (pendingIds.length === 0) stopPolling()
-  } catch {}
-  polling = false
-}
-
-function startPolling() {
-  if (timer) return
-  syncKeepAlive()
-  timer = setInterval(poll, POLL_INTERVAL)
-  poll()
-}
-
-function stopPolling() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
+    // Schedule next check if still pending
+    if (pendingIds.length > 0) {
+      scheduleNextCheck()
+    } else {
+      console.log(`[TaskPoller] all tasks done, no more checks`)
+      syncKeepAlive()
+    }
+  } catch (e: any) {
+    console.log(`[TaskPoller] check failed: ${e.message}`)
+    // Still schedule next check on error
+    if (pendingIds.length > 0) scheduleNextCheck()
   }
-  syncKeepAlive()
+  checking = false
 }
 
-/** Start/stop KeepAlive based on: has pending tasks OR has automation rules */
+/** Schedule next check via AlarmManager */
+function scheduleNextCheck() {
+  if (!AlarmSchedulerModule) return
+  AlarmSchedulerModule.scheduleTaskCheck(CHECK_INTERVAL_MS).catch(() => {})
+}
+
+/** Cancel pending task check alarm */
+function cancelCheck() {
+  if (!AlarmSchedulerModule) return
+  AlarmSchedulerModule.cancelTaskCheck().catch(() => {})
+}
+
+/** Start/stop KeepAlive based on pending tasks or automation rules */
 export async function syncKeepAlive() {
-  if (!AlarmSchedulerModule) {
-    console.log('[TaskPoller] syncKeepAlive: AlarmSchedulerModule not available')
-    return
-  }
+  if (!AlarmSchedulerModule) return
   try {
     const { getRules } = require('./automationService')
     const rules = await getRules()
     const hasEnabledAutomation = rules.some((r: any) => r.enabled)
     const hasPendingTasks = pendingIds.length > 0
-    console.log(`[TaskPoller] syncKeepAlive: automations=${hasEnabledAutomation}, pendingTasks=${hasPendingTasks} (${pendingIds.length})`)
+    console.log(`[TaskPoller] syncKeepAlive: automations=${hasEnabledAutomation}, pending=${hasPendingTasks} (${pendingIds.length})`)
 
     if (hasEnabledAutomation || hasPendingTasks) {
       await AlarmSchedulerModule.startKeepAlive()
-      console.log('[TaskPoller] KeepAlive started')
     } else {
       await AlarmSchedulerModule.stopKeepAlive()
-      console.log('[TaskPoller] KeepAlive stopped')
     }
-  } catch (e: any) {
-    console.log(`[TaskPoller] syncKeepAlive error: ${e.message}`)
-  }
+  } catch {}
 }
 
-/** Call this when a new task is submitted */
+/** Call when a new task is submitted */
 export function trackTask(callId: string) {
   if (!pendingIds.includes(callId)) {
     pendingIds.push(callId)
   }
-  startPolling()
+  console.log(`[TaskPoller] tracking task ${callId.slice(0, 8)}, total pending: ${pendingIds.length}`)
+  syncKeepAlive()
+  scheduleNextCheck()
 }
 
-/** Scan recent calls for any pending tasks (called on app start) */
+/** Scan recent calls for pending tasks (on app start) */
 export async function scanPendingTasks() {
   try {
     const data = await fetchCalls(1, 20)
@@ -136,14 +157,23 @@ export async function scanPendingTasks() {
     console.log(`[TaskPoller] scanned ${data.items.length} calls, ${pending.length} pending`)
     if (pending.length > 0) {
       pendingIds = [...new Set([...pendingIds, ...pending])]
-      startPolling()
+      syncKeepAlive()
+      scheduleNextCheck()
     } else {
-      // Still sync KeepAlive — automations may need it
       syncKeepAlive()
     }
   } catch (e: any) {
-    console.log(`[TaskPoller] scanPendingTasks failed: ${e.message}`)
-    // Still try to sync KeepAlive for automations
+    console.log(`[TaskPoller] scan failed: ${e.message}`)
     syncKeepAlive()
   }
+}
+
+/** Listen for AlarmManager task check events */
+export function initTaskCheckListener() {
+  if (listenerRegistered) return
+  listenerRegistered = true
+  DeviceEventEmitter.addListener('onTaskCheckAlarm', () => {
+    console.log(`[TaskPoller] alarm-triggered check`)
+    checkOnce()
+  })
 }

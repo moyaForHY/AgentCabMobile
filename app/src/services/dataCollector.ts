@@ -251,7 +251,17 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
           await PhotoScanner.requestPhotoPermission()
           const allPhotos = await PhotoScanner.scanPhotos(options?.limit || 500, 0)
           const timestamps = allPhotos.map((p: any) => p.dateAdded)
-          return await StorageScanner.analyzePhotoBursts(timestamps)
+          const burstResult = await StorageScanner.analyzePhotoBursts(timestamps)
+          // Enrich bursts with actual photo URIs so skills can generate delete actions
+          if (burstResult.bursts && Array.isArray(burstResult.bursts)) {
+            for (const burst of burstResult.bursts) {
+              const photos = allPhotos.slice(burst.startIndex, burst.endIndex + 1)
+              // Keep first as "best", rest are deletable
+              burst.keepUri = photos[0]?.uri || null
+              burst.deletableUris = photos.slice(1).map((p: any) => p.uri)
+            }
+          }
+          return burstResult
         })(), COLLECT_TIMEOUT, { bursts: [], totalBursts: 0, totalDeletable: 0 } as any)
       } catch { return { bursts: [], totalBursts: 0, totalDeletable: 0 } }
 

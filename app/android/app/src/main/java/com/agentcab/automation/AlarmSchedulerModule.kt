@@ -31,6 +31,50 @@ class AlarmSchedulerModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun scheduleTaskCheck(delayMs: Double, promise: Promise) {
+        try {
+            val am = getAlarmManager()
+            val intent = Intent(reactApplicationContext, AlarmReceiver::class.java).apply {
+                action = "com.agentcab.TASK_CHECK"
+                putExtra("ruleId", "__task_check__")
+            }
+            val pi = PendingIntent.getBroadcast(
+                reactApplicationContext,
+                "__task_check__".hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = System.currentTimeMillis() + delayMs.toLong()
+            // Use set() instead of setExact() — doesn't need SCHEDULE_EXACT_ALARM permission
+            am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ALARM_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun cancelTaskCheck(promise: Promise) {
+        try {
+            val am = getAlarmManager()
+            val intent = Intent(reactApplicationContext, AlarmReceiver::class.java).apply {
+                action = "com.agentcab.TASK_CHECK"
+                putExtra("ruleId", "__task_check__")
+            }
+            val pi = PendingIntent.getBroadcast(
+                reactApplicationContext,
+                "__task_check__".hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.cancel(pi)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ALARM_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun canScheduleExact(promise: Promise) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             promise.resolve(getAlarmManager().canScheduleExactAlarms())

@@ -18,15 +18,18 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val ruleId = intent.getStringExtra("ruleId") ?: return
-        Log.d(TAG, "Alarm fired for rule: $ruleId")
+        val isTaskCheck = ruleId == "__task_check__"
+        Log.d(TAG, if (isTaskCheck) "Task check alarm fired" else "Alarm fired for rule: $ruleId")
 
-        // Reschedule next occurrence
-        rescheduleNext(context, ruleId)
+        if (!isTaskCheck) {
+            rescheduleNext(context, ruleId)
+        }
 
         // Ensure KeepAlive is running
         try { KeepAliveService.start(context) } catch (_: Exception) {}
 
-        // Try to send JS event (KeepAlive keeps React context alive)
+        // Send JS event
+        val eventName = if (isTaskCheck) "onTaskCheckAlarm" else "onAutomationAlarm"
         try {
             val reactApp = context.applicationContext as? com.facebook.react.ReactApplication
             val reactContext = reactApp?.reactHost?.currentReactContext
@@ -34,10 +37,10 @@ class AlarmReceiver : BroadcastReceiver() {
             if (reactContext != null) {
                 reactContext
                     .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                    ?.emit("onAutomationAlarm", Arguments.createMap().apply {
+                    ?.emit(eventName, Arguments.createMap().apply {
                         putString("ruleId", ruleId)
                     })
-                Log.d(TAG, "Sent JS event for rule: $ruleId")
+                Log.d(TAG, "Sent $eventName event")
                 return
             }
         } catch (e: Exception) {

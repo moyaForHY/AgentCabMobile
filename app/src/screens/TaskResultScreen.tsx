@@ -14,6 +14,7 @@ import { fetchCall } from '../services/api'
 import { storage } from '../services/storage'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
 import { executeActions, type Action } from '../services/actionExecutor'
+import { batchDeletePhotos } from '../services/photoScanner'
 import { showModal } from '../components/AppModal'
 import DownloadButton from '../components/DownloadButton'
 import ReviewInput from '../components/ReviewInput'
@@ -249,17 +250,51 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
 
   const allExecuted = groups.length > 0 && groups.every((_, i) => executedGroups.has(i))
 
+  const [groupResults, setGroupResults] = useState<Record<number, { ok: number; fail: number; errors: string[] }>>({})
+
   const handleExecuteGroup = async (idx: number, groupActions: Action[]) => {
     setExecutingGroup(idx)
     try {
-      const results = await executeActions(groupActions, true)
+      // If all actions are delete_file with content:// URIs, use batch delete (one system dialog)
+      const allDeleteFile = groupActions.every(a => a.type === 'delete_file')
+      const allContentUri = groupActions.every(a => a.path?.startsWith('content://'))
+
+      let results: { type: string; success: boolean; error?: string }[]
+
+      if (allDeleteFile && allContentUri && groupActions.length > 1) {
+        const uris = groupActions.map(a => a.path)
+        try {
+          const count = await batchDeletePhotos(uris)
+          // System dialog shown — assume all succeeded (user confirmed)
+          results = groupActions.map(a => ({ type: a.type, success: true }))
+        } catch (e: any) {
+          results = groupActions.map(a => ({ type: a.type, success: false, error: e.message }))
+        }
+      } else {
+        results = await executeActions(groupActions, true)
+      }
+
+      const ok = results.filter(r => r.success).length
       const failed = results.filter(r => !r.success)
-      const newExecuted = new Set(executedGroups)
-      newExecuted.add(idx)
-      setExecutedGroups(newExecuted)
-      storage.setStringAsync(storageKey, JSON.stringify([...newExecuted])).catch(() => {})
-      if (failed.length > 0) {
-        showModal(t.doneLabel, `${results.length - failed.length}/${results.length}`)
+      const errors = [...new Set(failed.map(r => r.error || 'Unknown error').slice(0, 3))]
+
+      setGroupResults(prev => ({ ...prev, [idx]: { ok, fail: failed.length, errors } }))
+
+      if (failed.length === 0) {
+        // All succeeded — mark done
+        const newExecuted = new Set(executedGroups)
+        newExecuted.add(idx)
+        setExecutedGroups(newExecuted)
+        storage.setStringAsync(storageKey, JSON.stringify([...newExecuted])).catch(() => {})
+      } else if (ok > 0) {
+        // Partial success — show details but don't mark as fully done
+        showModal(
+          `${ok}/${results.length}`,
+          `${ok} succeeded, ${failed.length} failed\n${errors.join('\n')}`,
+        )
+      } else {
+        // All failed
+        showModal(t.errorTitle, errors.join('\n'))
       }
     } catch (err: any) {
       showModal(t.errorTitle, err.message)
@@ -281,7 +316,13 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
             <View style={s.actionGroupHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={s.actionGroupType}>{group.label}</Text>
-                <Text style={s.actionGroupDetail}>{group.actions.length} {group.actions.length === 1 ? 'action' : 'actions'}</Text>
+                {groupResults[idx] ? (
+                  <Text style={[s.actionGroupDetail, groupResults[idx].fail > 0 && { color: '#dc2626' }]}>
+                    {groupResults[idx].ok}/{group.actions.length} {groupResults[idx].fail > 0 ? `(${groupResults[idx].errors[0]})` : ''}
+                  </Text>
+                ) : (
+                  <Text style={s.actionGroupDetail}>{group.actions.length} actions</Text>
+                )}
               </View>
               <TouchableOpacity
                 style={[s.actionGroupBtn, done && s.actionGroupBtnDone]}

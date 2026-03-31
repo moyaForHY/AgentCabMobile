@@ -10,7 +10,7 @@ import TaskNotification from './src/components/TaskNotification'
 import NetworkBanner from './src/components/NetworkBanner'
 import { checkForUpdate } from './src/services/updateChecker'
 import { initAutomationListener } from './src/services/automationService'
-import { scanPendingTasks } from './src/services/taskPoller'
+import { scanPendingTasks, initTaskCheckListener } from './src/services/taskPoller'
 import SplashScreen from './src/screens/SplashScreen'
 
 export default function App() {
@@ -24,6 +24,7 @@ export default function App() {
       }
     })
     checkForUpdate()
+    initTaskCheckListener()
     scanPendingTasks()
     const cleanup = initAutomationListener()
     return cleanup

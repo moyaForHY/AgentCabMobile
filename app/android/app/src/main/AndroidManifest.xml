@@ -99,6 +99,7 @@
         android:exported="true">
         <intent-filter>
           <action android:name="com.agentcab.AUTOMATION_ALARM" />
+          <action android:name="com.agentcab.TASK_CHECK" />
         </intent-filter>
       </receiver>
 
