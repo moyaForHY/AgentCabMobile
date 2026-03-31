@@ -390,6 +390,23 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun sendSms(number: String, text: String, promise: Promise) {
+        try {
+            val smsManager = android.telephony.SmsManager.getDefault()
+            // Split long messages
+            val parts = smsManager.divideMessage(text)
+            if (parts.size == 1) {
+                smsManager.sendTextMessage(number, null, text, null, null)
+            } else {
+                smsManager.sendMultipartTextMessage(number, null, parts, null, null)
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SMS_SEND_ERROR", "Failed to send SMS: ${e.message}", e)
+        }
+    }
+
     private fun formatIp(ip: Int): String {
         return "${ip and 0xFF}.${ip shr 8 and 0xFF}.${ip shr 16 and 0xFF}.${ip shr 24 and 0xFF}"
     }

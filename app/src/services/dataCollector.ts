@@ -111,10 +111,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── Call Log ──
     case 'device:call_log':
       try {
-        if (!PermissionsAndroid.PERMISSIONS.READ_CALL_LOG || !CallLogModule) return []
+        if (!CallLogModule) throw new Error('Call log module not available')
         return await withTimeout((async () => {
           const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_CALL_LOG)
-          if (granted !== PermissionsAndroid.RESULTS.GRANTED) return null
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Call log permission denied')
           return await CallLogModule.getCallLog(options?.limit || 200, options?.days || 30)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
@@ -122,10 +122,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── SMS ──
     case 'device:sms':
       try {
-        if (!SmsModule || !PermissionsAndroid.PERMISSIONS.READ_SMS) return []
+        if (!SmsModule) throw new Error('SMS module not available')
         return await withTimeout((async () => {
           const smsGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS)
-          if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) return null
+          if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('SMS permission denied')
           const limit = options?.limit || 100
           const days = options?.days || 30
           const result = await SmsModule.getRecentMessages(limit, days)
@@ -149,8 +149,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── Apps ──
     case 'device:apps':
       try {
-        return await withTimeout(AppListService.getInstalledApps(false), COLLECT_TIMEOUT, [])
-      } catch { return [] }
+        const apps = await withTimeout(AppListService.getInstalledApps(false), COLLECT_TIMEOUT, [])
+        if (apps.length === 0) throw new Error('App list access denied (MIUI: enable "Get installed apps" in permission settings)')
+        return apps
+      } catch (e) { throw e }
 
     // ── Storage ──
     case 'device:storage':
@@ -190,7 +192,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
         if (!DeviceInfoManager) return { latitude: 0, longitude: 0, accuracy: -1 }
         return await withTimeout((async () => {
           const locGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
-          if (locGranted !== PermissionsAndroid.RESULTS.GRANTED) return { latitude: 0, longitude: 0, accuracy: -1 }
+          if (locGranted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Location permission denied')
           return await DeviceInfoManager.getLocation()
         })(), COLLECT_TIMEOUT, { latitude: 0, longitude: 0, accuracy: -1 })
       } catch { return { latitude: 0, longitude: 0, accuracy: -1 } }
@@ -292,7 +294,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               'android.permission.READ_MEDIA_AUDIO' as any,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return []
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Audio file permission denied')
           }
           return await DeviceInfoManager.getAudioFiles(options?.limit || 200)
         })(), COLLECT_TIMEOUT, [])
@@ -307,7 +309,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return []
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Video file permission denied')
           }
           return await DeviceInfoManager.getVideoFiles(options?.limit || 200)
         })(), COLLECT_TIMEOUT, [])
@@ -326,7 +328,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               'android.permission.BLUETOOTH_CONNECT' as any,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return { enabled: false, pairedDevices: [] }
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Bluetooth permission denied')
           }
           return await DeviceInfoManager.getBluetoothInfo()
         })(), COLLECT_TIMEOUT, { enabled: false, pairedDevices: [] })
@@ -370,6 +372,7 @@ export async function collectAllDeviceData(
   const result: Record<string, any> = {}
 
   const promises: Promise<void>[] = []
+  const failures: string[] = []
 
   for (const [key, prop] of Object.entries(properties) as [string, any][]) {
     const format = prop.format || ''
@@ -383,9 +386,11 @@ export async function collectAllDeviceData(
             const data = await collectByFormat(format, options)
             result[key] = data ?? fallback
             onProgress?.(key, 'done', data)
-          } catch {
+          } catch (e: any) {
             result[key] = fallback
             onProgress?.(key, 'failed')
+            const label = prop.title || key
+            failures.push(`${label}: ${e.message || 'Permission denied'}`)
           }
         })(),
       )
@@ -393,6 +398,20 @@ export async function collectAllDeviceData(
   }
 
   await Promise.all(promises)
+
+  // Show failures to user
+  if (failures.length > 0) {
+    const { showModal } = require('../components/AppModal')
+    showModal(
+      'Data Collection Issues',
+      failures.join('\n') + '\n\nGo to Settings → App permissions to fix.',
+      [
+        { text: 'Open Settings', onPress: () => require('react-native').Linking.openSettings() },
+        { text: 'Continue', style: 'cancel' as const },
+      ],
+    )
+  }
+
   return result
 }
 

@@ -206,13 +206,26 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         }
 
       // ── Communication ──
-      case 'send_sms':
+      case 'send_sms': {
+        const DeviceInfo = NativeModules.DeviceInfoManager
+        if (DeviceInfo?.sendSms) {
+          try {
+            const { PermissionsAndroid } = require('react-native')
+            const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.SEND_SMS)
+            if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+              await DeviceInfo.sendSms(action.number, action.text)
+              return ok(action.type)
+            }
+          } catch {}
+        }
+        // Fallback: open SMS app
         try {
           await Linking.openURL(`sms:${action.number}?body=${encodeURIComponent(action.text)}`)
           return ok(action.type)
         } catch {
-          return { type: action.type, success: false, error: 'Could not open SMS app.' }
+          return { type: action.type, success: false, error: 'Could not send SMS.' }
         }
+      }
 
       case 'make_call':
         try {
