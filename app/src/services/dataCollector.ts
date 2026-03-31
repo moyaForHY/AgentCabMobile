@@ -128,7 +128,21 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
           if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) return null
           const limit = options?.limit || 100
           const days = options?.days || 30
-          return await SmsModule.getRecentMessages(limit, days)
+          const result = await SmsModule.getRecentMessages(limit, days)
+          if (result?.length === 0) {
+            // MIUI may block "notification SMS" — guide user to enable
+            const { Linking } = require('react-native')
+            const { showModal } = require('../components/AppModal')
+            showModal(
+              '需要开启短信权限',
+              '小米手机需要额外开启"通知类短信"权限：\n\n设置 → 应用设置 → 应用管理 → AgentCab → 权限管理 → 通知类短信 → 允许',
+              [
+                { text: '去设置', onPress: () => Linking.openSettings() },
+                { text: '跳过', style: 'cancel' as const },
+              ],
+            )
+          }
+          return result
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
 
