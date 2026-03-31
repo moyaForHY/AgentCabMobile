@@ -145,9 +145,11 @@ class CalendarModule(reactContext: ReactApplicationContext) :
         endTime: Double,
         description: String,
         location: String,
+        color: String?,
         promise: Promise
     ) {
         try {
+            val isAllDay = endTime - startTime >= 86400000
             val values = ContentValues().apply {
                 put(CalendarContract.Events.CALENDAR_ID, calendarId.toLong())
                 put(CalendarContract.Events.TITLE, title)
@@ -156,6 +158,15 @@ class CalendarModule(reactContext: ReactApplicationContext) :
                 put(CalendarContract.Events.DTEND, endTime.toLong())
                 put(CalendarContract.Events.EVENT_LOCATION, location)
                 put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+                if (isAllDay) {
+                    put(CalendarContract.Events.ALL_DAY, 1)
+                    put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+                }
+                if (!color.isNullOrEmpty()) {
+                    try {
+                        put(CalendarContract.Events.EVENT_COLOR, android.graphics.Color.parseColor(color))
+                    } catch (_: Exception) {}
+                }
             }
 
             val uri: Uri? = reactApplicationContext.contentResolver.insert(
@@ -207,6 +218,65 @@ class CalendarModule(reactContext: ReactApplicationContext) :
      * Delete a calendar event by ID.
      * @param eventId Event ID
      */
+    @ReactMethod
+    fun editEvent(
+        eventId: String,
+        title: String?,
+        startTime: Double,
+        endTime: Double,
+        description: String?,
+        location: String?,
+        promise: Promise
+    ) {
+        try {
+            val values = ContentValues()
+            if (title != null) values.put(CalendarContract.Events.TITLE, title)
+            if (startTime > 0) values.put(CalendarContract.Events.DTSTART, startTime.toLong())
+            if (endTime > 0) values.put(CalendarContract.Events.DTEND, endTime.toLong())
+            if (description != null) values.put(CalendarContract.Events.DESCRIPTION, description)
+            if (location != null) values.put(CalendarContract.Events.EVENT_LOCATION, location)
+
+            val rowsUpdated = reactApplicationContext.contentResolver.update(
+                CalendarContract.Events.CONTENT_URI,
+                values,
+                "${CalendarContract.Events._ID} = ?",
+                arrayOf(eventId)
+            )
+
+            promise.resolve(rowsUpdated > 0)
+        } catch (e: Exception) {
+            promise.reject("EDIT_ERROR", "Failed to edit event: ${e.message}", e)
+        }
+    }
+
+    @ReactMethod
+    fun deleteEventsByPrefix(calendarId: String, prefix: String, promise: Promise) {
+        try {
+            val cursor = reactApplicationContext.contentResolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                arrayOf(CalendarContract.Events._ID, CalendarContract.Events.TITLE),
+                "${CalendarContract.Events.CALENDAR_ID} = ? AND ${CalendarContract.Events.TITLE} LIKE ?",
+                arrayOf(calendarId, "$prefix%"),
+                null
+            )
+            var count = 0
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(0)
+                    val deleted = reactApplicationContext.contentResolver.delete(
+                        CalendarContract.Events.CONTENT_URI,
+                        "${CalendarContract.Events._ID} = ?",
+                        arrayOf(id.toString())
+                    )
+                    if (deleted > 0) count++
+                }
+            }
+            promise.resolve(count)
+        } catch (e: Exception) {
+            promise.reject("DELETE_ERROR", "Failed to delete events: ${e.message}", e)
+        }
+    }
+
     @ReactMethod
     fun deleteEvent(eventId: String, promise: Promise) {
         try {

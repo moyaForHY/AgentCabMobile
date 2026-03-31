@@ -80,6 +80,7 @@ export async function createEvent(
   endTime: number,
   description = '',
   location = '',
+  color?: string,
 ): Promise<string> {
   return CalendarManager.createEvent(
     calendarId,
@@ -88,13 +89,37 @@ export async function createEvent(
     endTime,
     description,
     location,
+    color || null,
   )
+}
+
+/**
+ * Edit an existing calendar event.
+ * Pass null/0 for fields you don't want to change.
+ */
+export async function editEvent(
+  eventId: string,
+  title?: string,
+  startTime?: number,
+  endTime?: number,
+  description?: string,
+  location?: string,
+): Promise<boolean> {
+  return CalendarManager.editEvent(eventId, title || null, startTime || 0, endTime || 0, description || null, location || null)
 }
 
 /**
  * Delete a calendar event by ID.
  * @returns true if the event was deleted
  */
+/**
+ * Delete all events whose title starts with a given prefix.
+ * @returns number of deleted events
+ */
+export async function deleteEventsByPrefix(calendarId: string, prefix: string): Promise<number> {
+  return CalendarManager.deleteEventsByPrefix(calendarId, prefix)
+}
+
 export async function deleteEvent(eventId: string): Promise<boolean> {
   return CalendarManager.deleteEvent(eventId)
 }

@@ -149,6 +149,22 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
           action.endTime,
           action.description || '',
           action.location || '',
+          action.color,
+        )
+        return ok(action.type)
+
+      case 'clear_calendar_prefix':
+        await Calendar.deleteEventsByPrefix(action.calendarId || '1', action.prefix)
+        return ok(action.type)
+
+      case 'edit_event':
+        await Calendar.editEvent(
+          action.eventId,
+          action.title,
+          action.startTime,
+          action.endTime,
+          action.description,
+          action.location,
         )
         return ok(action.type)
 
