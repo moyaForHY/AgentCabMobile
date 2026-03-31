@@ -233,6 +233,17 @@ export default {
   onboardingSkip: '跳过',
   onboardingGetStarted: '开始使用',
 
+  // Delete Account
+  deleteAccount: '注销账号',
+  deleteAccountMsg: '请联系 support@agentcab.ai 注销账号。',
+
+  // Task Result — beautified output
+  rawData: '原始数据',
+  healthScore: '健康评分',
+  safetyScore: '安全评分',
+  alerts: '提醒',
+  funFacts: '趣知识',
+
   // Network
   noInternet: '无网络连接',
   networkRestored: '网络已恢复',

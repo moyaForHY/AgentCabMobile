@@ -48,24 +48,20 @@ class SmsModule(reactContext: ReactApplicationContext) :
                         val dateIdx = testCursor.getColumnIndex("date")
                         if (dateIdx >= 0) newestDate = testCursor.getLong(dateIdx)
                     }
-                    android.util.Log.d("SmsModule", "URI $uri => $count rows, newest=${java.util.Date(newestDate)}")
                     testCursor?.close()
                     if (count > maxRows) {
                         maxRows = count
                         workingUri = uri
                     }
                 } catch (e: Exception) {
-                    android.util.Log.d("SmsModule", "URI $uri failed: ${e.message}")
+                    // URI not available on this device
                 }
             }
 
             if (workingUri == null) {
-                android.util.Log.d("SmsModule", "No working SMS URI found")
                 promise.resolve(messages)
                 return
             }
-
-            android.util.Log.d("SmsModule", "Using URI: $workingUri")
 
             val cursor = reactApplicationContext.contentResolver.query(
                 workingUri,
@@ -79,16 +75,6 @@ class SmsModule(reactContext: ReactApplicationContext) :
                 val dateCol = it.getColumnIndexOrThrow("date")
                 val typeCol = it.getColumnIndexOrThrow("type")
                 val readCol = it.getColumnIndexOrThrow("read")
-
-                android.util.Log.d("SmsModule", "Cursor has ${it.count} rows, cutoff=$cutoffMs")
-                // Log first 5 dates to debug ordering
-                var debugCount = 0
-                while (it.moveToNext() && debugCount < 5) {
-                    val d = it.getLong(dateCol)
-                    android.util.Log.d("SmsModule", "Row $debugCount: date=$d (${java.util.Date(d)})")
-                    debugCount++
-                }
-                it.moveToPosition(-1) // reset cursor
 
                 var count = 0
                 while (it.moveToNext() && count < limit) {
@@ -116,7 +102,6 @@ class SmsModule(reactContext: ReactApplicationContext) :
                 }
             }
 
-            android.util.Log.d("SmsModule", "Found ${messages.size()} messages")
             promise.resolve(messages)
         } catch (e: Exception) {
             android.util.Log.e("SmsModule", "Error reading SMS", e)

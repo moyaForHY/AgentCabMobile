@@ -16,15 +16,21 @@ function cacheKey(url: string, params?: any): string {
   return `api_cache_${url}_${p}`
 }
 
+const CACHE_TTL = 5 * 60 * 1000
+
 export async function getCached<T>(url: string, params?: any): Promise<T | null> {
   try {
     const raw = await AsyncStorage.getItem(cacheKey(url, params))
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return null
+    const entry = JSON.parse(raw)
+    if (entry.t && Date.now() - entry.t > CACHE_TTL) return null
+    return entry.d !== undefined ? entry.d : entry // backward compat with old format
   } catch { return null }
 }
 
 function setCache(url: string, params: any, data: any) {
-  AsyncStorage.setItem(cacheKey(url, params), JSON.stringify(data)).catch(() => {})
+  const entry = JSON.stringify({ d: data, t: Date.now() })
+  AsyncStorage.setItem(cacheKey(url, params), entry).catch(() => {})
 }
 
 /** GET with cache-first strategy. Returns cached data instantly via onCached, then fetches fresh. */

@@ -267,6 +267,14 @@ export default function ProfileScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* ── Delete Account ── */}
+      <TouchableOpacity
+        style={s.deleteAccountBtn}
+        onPress={() => showModal(t.deleteAccount, t.deleteAccountMsg)}
+        activeOpacity={0.7}>
+        <Text style={s.deleteAccountText}>{t.deleteAccount}</Text>
+      </TouchableOpacity>
+
       {/* ── Logout ── */}
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
         <Text style={s.logoutText}>{t.logOut}</Text>
@@ -517,6 +525,18 @@ const s = StyleSheet.create({
   },
   langLabel: { fontSize: 14, color: colors.ink700, fontWeight: fontWeight.medium },
   langValue: { fontSize: 14, color: '#2563eb', fontWeight: fontWeight.semibold },
+
+  // Delete Account
+  deleteAccountBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.15)',
+    marginBottom: 10,
+  },
+  deleteAccountText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink500 },
 
   // Logout
   logoutBtn: {

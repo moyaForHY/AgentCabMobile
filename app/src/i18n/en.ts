@@ -233,6 +233,17 @@ export default {
   onboardingSkip: 'Skip',
   onboardingGetStarted: 'Get Started',
 
+  // Delete Account
+  deleteAccount: 'Delete Account',
+  deleteAccountMsg: 'Please contact support@agentcab.ai to delete your account.',
+
+  // Task Result — beautified output
+  rawData: 'Raw Data',
+  healthScore: 'HEALTH SCORE',
+  safetyScore: 'SAFETY SCORE',
+  alerts: 'Alerts',
+  funFacts: 'Fun Facts',
+
   // Network
   noInternet: 'No internet connection',
   networkRestored: 'Connection restored',

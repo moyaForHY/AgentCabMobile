@@ -3,7 +3,7 @@
  * Automatically collects device data based on input_schema format hints.
  * See DEVICE_PROTOCOL.md for the full format spec.
  */
-import { NativeModules, PermissionsAndroid, Platform } from 'react-native'
+import { NativeModules, PermissionsAndroid, Platform, AppState } from 'react-native'
 import * as FileSystem from './fileSystem'
 import * as PhotoScanner from './photoScanner'
 import * as Calendar from './calendar'
@@ -129,8 +129,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
           const limit = options?.limit || 100
           const days = options?.days || 30
           const result = await SmsModule.getRecentMessages(limit, days)
-          if (result?.length === 0) {
-            // MIUI may block "notification SMS" — guide user to enable
+          if (result?.length === 0 && AppState.currentState === 'active') {
+            // MIUI may block "notification SMS" — guide user to enable (only when foreground)
             const { Linking } = require('react-native')
             const { showModal } = require('../components/AppModal')
             showModal(

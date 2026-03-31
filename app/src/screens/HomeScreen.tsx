@@ -247,11 +247,11 @@ export default function HomeScreen({ navigation }: any) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{t.automations}</Text>
-            {automations.filter(a => a.enabled).length > 0 ? (
+            {automations.length > 0 && (
               <TouchableOpacity onPress={() => navigation.navigate('Automations')}>
                 <Text style={styles.seeAll}>{lang === 'zh' ? '管理' : 'Manage'}</Text>
               </TouchableOpacity>
-            ) : null}
+            )}
           </View>
           {automations.filter(a => a.enabled).length > 0 ? (
             automations.filter(a => a.enabled).slice(0, 3).map(rule => (

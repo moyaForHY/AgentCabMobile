@@ -147,10 +147,13 @@ export default function TaskResultScreen({ route }: any) {
         </View>
       )}
 
-      {/* Output Data */}
+      {/* Output Data — Beautified */}
+      {output && typeof output === 'object' && <OutputBeautified output={output} t={t} />}
+
+      {/* Output Data — Raw */}
       {output && (
         <CollapsibleSection
-          title={t.output}
+          title={t.rawData}
           right={
             <View style={s.actionRow}>
               <TouchableOpacity
@@ -384,6 +387,98 @@ function _LegacyActionsSection({ actions, t, taskId }: { actions: Action[]; t: a
   )
 }
 
+function ScoreBadge({ label, score }: { label: string; score: number }) {
+  const color = score >= 80 ? '#059669' : score >= 50 ? '#d97706' : '#dc2626'
+  const bg = score >= 80 ? '#ecfdf5' : score >= 50 ? '#fffbeb' : '#fef2f2'
+  return (
+    <View style={[s.scoreBadge, { backgroundColor: bg }]}>
+      <Text style={[s.scoreBadgeLabel, { color }]}>{label}</Text>
+      <Text style={[s.scoreBadgeValue, { color }]}>{score}</Text>
+    </View>
+  )
+}
+
+function AlertItem({ alert }: { alert: any }) {
+  const level = (alert.level || alert.severity || 'info').toLowerCase()
+  const color = level === 'critical' || level === 'high' || level === 'error' ? '#dc2626'
+    : level === 'warning' || level === 'medium' ? '#d97706'
+    : '#2563eb'
+  return (
+    <View style={s.alertItem}>
+      <View style={[s.alertDot, { backgroundColor: color }]} />
+      <View style={{ flex: 1 }}>
+        {alert.title && <Text style={[s.alertTitle, { color }]}>{alert.title}</Text>}
+        <Text style={s.alertMessage}>{alert.message || alert.description || JSON.stringify(alert)}</Text>
+      </View>
+    </View>
+  )
+}
+
+function OutputBeautified({ output, t }: { output: any; t: any }) {
+  const hasMessage = typeof output.message === 'string'
+  const hasSections = Array.isArray(output.sections) && output.sections.length > 0
+  const healthScore = output.health_score ?? output.healthScore
+  const safetyScore = output.safety_score ?? output.safetyScore
+  const hasScores = healthScore != null || safetyScore != null
+  const hasFunFacts = Array.isArray(output.fun_facts) && output.fun_facts.length > 0
+  const hasAlerts = Array.isArray(output.alerts) && output.alerts.length > 0
+  const hasBeautified = hasMessage || hasSections || hasScores || hasFunFacts || hasAlerts
+
+  if (!hasBeautified) return null
+
+  return (
+    <View style={s.card}>
+      <Text style={s.sectionTitle}>{t.output}</Text>
+
+      {/* Summary message */}
+      {hasMessage && (
+        <View style={s.summaryBox}>
+          <Text style={s.summaryText}>{output.message}</Text>
+        </View>
+      )}
+
+      {/* Scores */}
+      {hasScores && (
+        <View style={s.scoresRow}>
+          {healthScore != null && <ScoreBadge label={t.healthScore} score={healthScore} />}
+          {safetyScore != null && <ScoreBadge label={t.safetyScore} score={safetyScore} />}
+        </View>
+      )}
+
+      {/* Sections */}
+      {hasSections && output.sections.map((sec: any, idx: number) => (
+        <View key={idx} style={s.sectionCard}>
+          {sec.title && <Text style={s.sectionCardTitle}>{sec.title}</Text>}
+          {sec.description && <Text style={s.sectionCardDesc}>{sec.description}</Text>}
+        </View>
+      ))}
+
+      {/* Alerts */}
+      {hasAlerts && (
+        <View style={s.alertsContainer}>
+          <Text style={s.alertsTitle}>{t.alerts}</Text>
+          {output.alerts.map((alert: any, idx: number) => (
+            <AlertItem key={idx} alert={alert} />
+          ))}
+        </View>
+      )}
+
+      {/* Fun Facts */}
+      {hasFunFacts && (
+        <View style={s.funFactsContainer}>
+          <Text style={s.funFactsTitle}>{t.funFacts}</Text>
+          {output.fun_facts.map((fact: string, idx: number) => (
+            <View key={idx} style={s.funFactRow}>
+              <Text style={s.funFactBullet}>{'  \u2022  '}</Text>
+              <Text style={s.funFactText}>{fact}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  )
+}
+
 function CollapsibleSection({ title, right, children, defaultOpen = false }: {
   title: string; right?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean
 }) {
@@ -608,6 +703,121 @@ const s = StyleSheet.create({
   fileName: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.ink950 },
   fileMeta: { fontSize: 11, color: colors.ink500, marginTop: 2 },
   downloadBtn: { fontSize: 13, fontWeight: fontWeight.semibold, color: '#2563eb' },
+
+  // Beautified output
+  summaryBox: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    padding: 14,
+  },
+  summaryText: {
+    fontSize: 15,
+    fontWeight: fontWeight.semibold,
+    color: colors.ink950,
+    lineHeight: 22,
+  },
+  scoresRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  scoreBadge: {
+    flex: 1,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+  },
+  scoreBadgeLabel: {
+    fontSize: 11,
+    fontWeight: fontWeight.semibold,
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
+  scoreBadgeValue: {
+    fontSize: 28,
+    fontWeight: fontWeight.extrabold,
+    letterSpacing: -0.5,
+  },
+  sectionCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.06)',
+  },
+  sectionCardTitle: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    marginBottom: 4,
+  },
+  sectionCardDesc: {
+    fontSize: 13,
+    color: colors.ink700,
+    lineHeight: 19,
+  },
+  alertsContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  alertsTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    marginBottom: 8,
+  },
+  alertItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  alertDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 5,
+    marginRight: 10,
+  },
+  alertTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    marginBottom: 2,
+  },
+  alertMessage: {
+    fontSize: 13,
+    color: colors.ink700,
+    lineHeight: 18,
+  },
+  funFactsContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  funFactsTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    marginBottom: 8,
+  },
+  funFactRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  funFactBullet: {
+    fontSize: 13,
+    color: colors.ink500,
+  },
+  funFactText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.ink700,
+    lineHeight: 19,
+  },
 
   // Code block
   codeBlock: {
