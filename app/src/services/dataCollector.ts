@@ -3,7 +3,7 @@
  * Automatically collects device data based on input_schema format hints.
  * See DEVICE_PROTOCOL.md for the full format spec.
  */
-import { NativeModules, PermissionsAndroid, Platform, AppState } from 'react-native'
+import { NativeModules, PermissionsAndroid, Platform, AppState, Linking } from 'react-native'
 import * as FileSystem from './fileSystem'
 import * as PhotoScanner from './photoScanner'
 import * as Calendar from './calendar'
@@ -14,6 +14,7 @@ import { readClipboard } from './deviceCapabilities'
 import * as StorageScanner from './storageScanner'
 import { takeScreenshot } from './screenshot'
 import { uploadFile } from './api'
+import { permissionStrings, dataCollectionStrings, smsGuideStrings, getDeviceBrand, openPermissionEditor } from '../utils/i18n'
 
 const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
 const CallLogModule = NativeModules.CallLogModule ?? null
@@ -27,6 +28,16 @@ type DeviceOptions = {
   recursive?: boolean
   range_days?: number
   direction?: 'past' | 'future'
+}
+
+/** Show a modal guiding user to enable permission in Settings */
+function guideToSettings(permKey: string) {
+  const { showModal } = require('../components/AppModal')
+  const s = permissionStrings(permKey)
+  showModal(s.title, s.message, [
+    { text: s.goSettings, onPress: () => openPermissionEditor() },
+    { text: s.cancel, style: 'cancel' as const },
+  ])
 }
 
 /** Race a promise against a timeout. Returns fallback on timeout. */
@@ -49,7 +60,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:photos':
       try {
         return await withTimeout((async () => {
-          await PhotoScanner.requestPhotoPermission()
+          const ok = await PhotoScanner.requestPhotoPermission()
+          if (!ok) throw new Error('相册权限未开启')
           return await PhotoScanner.scanPhotos(options?.limit || 200, 0)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
@@ -57,7 +69,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:photos_recent':
       try {
         return await withTimeout((async () => {
-          await PhotoScanner.requestPhotoPermission()
+          const ok = await PhotoScanner.requestPhotoPermission()
+          if (!ok) throw new Error('相册权限未开启')
           const days = options?.days || 7
           const photos = await PhotoScanner.scanPhotos(options?.limit || 500, 0)
           const cutoff = Date.now() / 1000 - days * 86400
@@ -68,7 +81,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:photo_hashes':
       try {
         return await withTimeout((async () => {
-          await PhotoScanner.requestPhotoPermission()
+          const ok = await PhotoScanner.requestPhotoPermission()
+          if (!ok) throw new Error('相册权限未开启')
           const allPhotos = await PhotoScanner.scanPhotos(options?.limit || 500, 0)
           const uris = allPhotos.map((p: any) => p.uri)
           return await PhotoScanner.batchComputePhash(uris)
@@ -79,7 +93,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:calendar':
       try {
         return await withTimeout((async () => {
-          await Calendar.requestCalendarPermission()
+          const ok = await Calendar.requestCalendarPermission()
+          if (!ok) throw new Error('日历权限未开启')
           const rangeDays = options?.range_days || 30
           const dir = options?.direction || 'future'
           const now = Date.now()
@@ -92,7 +107,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:calendar_week':
       try {
         return await withTimeout((async () => {
-          await Calendar.requestCalendarPermission()
+          const ok = await Calendar.requestCalendarPermission()
+          if (!ok) throw new Error('日历权限未开启')
           const now = Date.now()
           const weekAgo = now - 7 * 86400000
           return await Calendar.getEvents('1', weekAgo, now)
@@ -103,7 +119,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:contacts':
       try {
         return await withTimeout((async () => {
-          await Contacts.requestContactsPermission()
+          const ok = await Contacts.requestContactsPermission()
+          if (!ok) throw new Error('通讯录权限未开启')
           return await Contacts.getContacts(options?.limit || 500, 0)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
@@ -114,7 +131,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
         if (!CallLogModule) throw new Error('Call log module not available')
         return await withTimeout((async () => {
           const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_CALL_LOG)
-          if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Call log permission denied')
+          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+            if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('call_log')
+            throw new Error('通话记录权限未开启')
+          }
           return await CallLogModule.getCallLog(options?.limit || 200, options?.days || 30)
         })(), COLLECT_TIMEOUT, [])
       } catch { return [] }
@@ -125,22 +145,30 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
         if (!SmsModule) throw new Error('SMS module not available')
         return await withTimeout((async () => {
           const smsGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS)
-          if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('SMS permission denied')
+          if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+            if (smsGranted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('sms')
+            throw new Error('短信权限未开启')
+          }
           const limit = options?.limit || 100
           const days = options?.days || 30
           const result = await SmsModule.getRecentMessages(limit, days)
-          if (result?.length === 0 && AppState.currentState === 'active') {
-            // MIUI may block "notification SMS" — guide user to enable (only when foreground)
-            const { Linking } = require('react-native')
-            const { showModal } = require('../components/AppModal')
-            showModal(
-              '需要开启短信权限',
-              '小米手机需要额外开启"通知类短信"权限：\n\n设置 → 应用设置 → 应用管理 → AgentCab → 权限管理 → 通知类短信 → 允许',
-              [
-                { text: '去设置', onPress: () => Linking.openSettings() },
-                { text: '跳过', style: 'cancel' as const },
-              ],
-            )
+          if (AppState.currentState === 'active') {
+            // Many Chinese Android skins block notification/service SMS by default
+            // Detect by checking if any short-code service messages exist
+            const brand = getDeviceBrand()
+            const needsCheck = brand !== 'samsung' && brand !== 'other' // Samsung/stock Android don't have this issue
+            const hasServiceSms = result?.some((msg: any) => {
+              const addr = (msg.address || '').replace(/[^0-9]/g, '')
+              return addr.length <= 6 || /^(10|12|95|106)/.test(addr)
+            })
+            if (needsCheck && !hasServiceSms) {
+              const { showModal } = require('../components/AppModal')
+              const sg = smsGuideStrings()
+              showModal(sg.title, sg.message, [
+                { text: sg.goSettings, onPress: () => openPermissionEditor() },
+                { text: sg.skip, style: 'cancel' as const },
+              ])
+            }
           }
           return result
         })(), COLLECT_TIMEOUT, [])
@@ -150,9 +178,38 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:apps':
       try {
         const apps = await withTimeout(AppListService.getInstalledApps(false), COLLECT_TIMEOUT, [])
-        if (apps.length === 0) throw new Error('App list access denied (MIUI: enable "Get installed apps" in permission settings)')
+        // OEM restriction: getInstalledApplications silently returns only self + a few system apps
+        // A real device always has 10+ user apps; fewer means the permission is blocked
+        if (apps.length < 10 && AppState.currentState === 'active') {
+          const { showModal } = require('../components/AppModal')
+          const zh = require('../utils/i18n').isChinese()
+          const brand = getDeviceBrand()
+          let msg: string
+          if (zh) {
+            switch (brand) {
+              case 'xiaomi':
+                msg = '需要开启"获取已安装应用列表"权限：\n\n设置 → 应用设置 → 应用管理 → AgentCab → 权限管理 → 获取已安装应用列表 → 允许'
+                break
+              case 'huawei':
+                msg = '需要允许获取应用列表：\n\n设置 → 应用和服务 → 应用管理 → AgentCab → 权限 → 获取应用列表'
+                break
+              default:
+                msg = '需要允许获取已安装应用列表，请在系统设置中开启相关权限。'
+            }
+          } else {
+            msg = 'Permission to read installed apps is required. Please enable it in Settings → Apps → AgentCab → Permissions.'
+          }
+          showModal(
+            zh ? '无法获取应用列表' : 'Cannot Read App List',
+            msg,
+            [
+              { text: zh ? '去设置' : 'Open Settings', onPress: () => openPermissionEditor() },
+              { text: zh ? '跳过' : 'Skip', style: 'cancel' as const },
+            ],
+          )
+        }
         return apps
-      } catch (e) { throw e }
+      } catch { return [] }
 
     // ── Storage ──
     case 'device:storage':
@@ -192,7 +249,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
         if (!DeviceInfoManager) return { latitude: 0, longitude: 0, accuracy: -1 }
         return await withTimeout((async () => {
           const locGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
-          if (locGranted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Location permission denied')
+          if (locGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+            if (locGranted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('location')
+            throw new Error('位置权限未开启')
+          }
           return await DeviceInfoManager.getLocation()
         })(), COLLECT_TIMEOUT, { latitude: 0, longitude: 0, accuracy: -1 })
       } catch { return { latitude: 0, longitude: 0, accuracy: -1 } }
@@ -264,7 +324,8 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     case 'device:photo_bursts':
       try {
         return await withTimeout((async () => {
-          await PhotoScanner.requestPhotoPermission()
+          const ok = await PhotoScanner.requestPhotoPermission()
+          if (!ok) throw new Error('相册权限未开启')
           const allPhotos = await PhotoScanner.scanPhotos(options?.limit || 500, 0)
           const timestamps = allPhotos.map((p: any) => p.dateAdded)
           const burstResult = await StorageScanner.analyzePhotoBursts(timestamps)
@@ -294,7 +355,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               'android.permission.READ_MEDIA_AUDIO' as any,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Audio file permission denied')
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+              if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('audio')
+              throw new Error('音频权限未开启')
+            }
           }
           return await DeviceInfoManager.getAudioFiles(options?.limit || 200)
         })(), COLLECT_TIMEOUT, [])
@@ -309,7 +373,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Video file permission denied')
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+              if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('video')
+              throw new Error('视频权限未开启')
+            }
           }
           return await DeviceInfoManager.getVideoFiles(options?.limit || 200)
         })(), COLLECT_TIMEOUT, [])
@@ -328,7 +395,10 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
             const granted = await PermissionsAndroid.request(
               'android.permission.BLUETOOTH_CONNECT' as any,
             )
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) throw new Error('Bluetooth permission denied')
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+              if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) guideToSettings('bluetooth')
+              throw new Error('蓝牙权限未开启')
+            }
           }
           return await DeviceInfoManager.getBluetoothInfo()
         })(), COLLECT_TIMEOUT, { enabled: false, pairedDevices: [] })
@@ -402,14 +472,43 @@ export async function collectAllDeviceData(
   // Show failures to user
   if (failures.length > 0) {
     const { showModal } = require('../components/AppModal')
-    showModal(
-      'Data Collection Issues',
-      failures.join('\n') + '\n\nGo to Settings → App permissions to fix.',
-      [
-        { text: 'Open Settings', onPress: () => require('react-native').Linking.openSettings() },
-        { text: 'Continue', style: 'cancel' as const },
-      ],
-    )
+    const ds = dataCollectionStrings()
+    showModal(ds.title, failures.join('\n') + ds.suffix, [
+      { text: ds.goSettings, onPress: () => openPermissionEditor() },
+      { text: ds.continue_, style: 'cancel' as const },
+    ])
+  }
+
+  // Detect suspiciously empty results — may indicate OEM silent blocking
+  if (AppState.currentState === 'active' && failures.length === 0) {
+    const emptyFields: string[] = []
+    for (const [key, prop] of Object.entries(properties) as [string, any][]) {
+      const format = prop.format || ''
+      if (!format.startsWith('device:')) continue
+      const data = result[key]
+      // Only flag array-type fields that returned empty (photos, contacts, calendar, call_log, sms, apps)
+      // Skip fields that can legitimately be empty (clipboard, location, battery, etc.)
+      const expectsData = ['device:photos', 'device:photos_recent', 'device:contacts',
+        'device:calendar', 'device:calendar_week', 'device:call_log', 'device:sms',
+        'device:apps', 'device:files', 'device:files_downloads'].includes(format)
+      if (expectsData && Array.isArray(data) && data.length === 0) {
+        emptyFields.push(prop.title || key)
+      }
+    }
+    if (emptyFields.length > 0) {
+      const { showModal } = require('../components/AppModal')
+      const zh = require('../utils/i18n').isChinese()
+      showModal(
+        zh ? '数据采集结果为空' : 'Empty Data Collected',
+        (zh
+          ? `以下数据采集为空，可能是权限未完全开启：\n\n${emptyFields.join('、')}\n\n如果确认已授权，部分手机系统可能需要额外开启相关权限。`
+          : `The following data was empty, which may indicate missing permissions:\n\n${emptyFields.join(', ')}\n\nIf permissions are granted, your device may require additional settings.`),
+        [
+          { text: zh ? '去设置' : 'Open Settings', onPress: () => openPermissionEditor() },
+          { text: zh ? '继续' : 'Continue', style: 'cancel' as const },
+        ],
+      )
+    }
   }
 
   return result

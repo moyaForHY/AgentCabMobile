@@ -30,6 +30,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Query all installed packages (Android 11+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- OEM permission for installed apps list (MIUI/HarmonyOS) -->
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
     <!-- Audio media files (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Bluetooth (Android 12+) -->

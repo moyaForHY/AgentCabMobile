@@ -32,7 +32,18 @@ export async function requestContactsPermission(): Promise<boolean> {
     buttonNegative: 'Deny',
   })
 
-  return result === PermissionsAndroid.RESULTS.GRANTED
+  if (result === PermissionsAndroid.RESULTS.GRANTED) return true
+
+  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+    const { showModal } = require('../components/AppModal')
+    const { permissionStrings, openPermissionEditor } = require('../utils/i18n')
+    const s = permissionStrings('contacts')
+    showModal(s.title, s.message, [
+      { text: s.goSettings, onPress: () => openPermissionEditor() },
+      { text: s.cancel, style: 'cancel' as const },
+    ])
+  }
+  return false
 }
 
 /**

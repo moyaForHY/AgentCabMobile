@@ -26,6 +26,83 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
     companion object { const val NAME = "DeviceInfoManager" }
     override fun getName(): String = NAME
 
+    override fun getConstants(): MutableMap<String, Any> {
+        val locale = java.util.Locale.getDefault()
+        val miuiVersion = try { System.getProperty("ro.miui.ui.version.name") ?: "" } catch (_: Exception) { "" }
+        return hashMapOf(
+            "locale" to locale.toString(),              // e.g. "zh_CN", "en_US"
+            "language" to locale.language,               // e.g. "zh", "en"
+            "brand" to Build.BRAND.lowercase(),          // e.g. "xiaomi", "huawei"
+            "manufacturer" to Build.MANUFACTURER.lowercase(), // e.g. "xiaomi", "huawei"
+            "miuiVersion" to miuiVersion,               // e.g. "V14", "" if not MIUI
+        )
+    }
+
+    /** Open OEM-specific app permission editor page (more direct than generic settings) */
+    @ReactMethod
+    fun openAppPermissionEditor(promise: Promise) {
+        try {
+            val ctx = reactApplicationContext
+            val brand = Build.BRAND.lowercase()
+            val intent = when {
+                // Xiaomi MIUI
+                brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco") -> {
+                    Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                        setClassName("com.miui.securitycenter",
+                            "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                        putExtra("extra_pkgname", ctx.packageName)
+                    }
+                }
+                // Huawei EMUI
+                brand.contains("huawei") || brand.contains("honor") -> {
+                    Intent().apply {
+                        setClassName("com.huawei.systemmanager",
+                            "com.huawei.permissionmanager.ui.SingleAppActivity")
+                        putExtra("packageName", ctx.packageName)
+                    }
+                }
+                // OPPO ColorOS
+                brand.contains("oppo") || brand.contains("realme") -> {
+                    Intent().apply {
+                        setClassName("com.coloros.safecenter",
+                            "com.coloros.safecenter.permission.PermissionAppAllPermissionActivity")
+                        putExtra("packageName", ctx.packageName)
+                    }
+                }
+                // Vivo
+                brand.contains("vivo") || brand.contains("iqoo") -> {
+                    Intent().apply {
+                        setClassName("com.vivo.permissionmanager",
+                            "com.vivo.permissionmanager.activity.SoftPermissionDetailActivity")
+                        putExtra("packagename", ctx.packageName)
+                    }
+                }
+                else -> null
+            }
+
+            if (intent != null) {
+                try {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                    promise.resolve(true)
+                    return
+                } catch (_: Exception) {
+                    // OEM activity not found, fall through to generic settings
+                }
+            }
+
+            // Fallback: open generic app detail settings
+            val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${ctx.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(fallback)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("PERM_EDITOR_ERROR", e.message, e)
+        }
+    }
+
     @ReactMethod
     fun getBatteryInfo(promise: Promise) {
         try {
@@ -394,14 +471,62 @@ class DeviceInfoModule(reactContext: ReactApplicationContext) :
     fun sendSms(number: String, text: String, promise: Promise) {
         try {
             val smsManager = android.telephony.SmsManager.getDefault()
-            // Split long messages
             val parts = smsManager.divideMessage(text)
-            if (parts.size == 1) {
-                smsManager.sendTextMessage(number, null, text, null, null)
-            } else {
-                smsManager.sendMultipartTextMessage(number, null, parts, null, null)
+
+            // Use PendingIntent to verify send result
+            val sentAction = "com.agentcab.SMS_SENT_${System.currentTimeMillis()}"
+            val sentIntent = android.app.PendingIntent.getBroadcast(
+                reactApplicationContext, 0,
+                Intent(sentAction),
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Register receiver to get send result
+            var resolved = false
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (resolved) return
+                    resolved = true
+                    try { reactApplicationContext.unregisterReceiver(this) } catch (_: Exception) {}
+                    when (resultCode) {
+                        android.app.Activity.RESULT_OK -> promise.resolve(true)
+                        android.telephony.SmsManager.RESULT_ERROR_NO_SERVICE ->
+                            promise.reject("SMS_SEND_ERROR", "No cellular service")
+                        android.telephony.SmsManager.RESULT_ERROR_RADIO_OFF ->
+                            promise.reject("SMS_SEND_ERROR", "Radio/airplane mode is on")
+                        else -> promise.reject("SMS_SEND_ERROR", "SMS send failed (code: $resultCode)")
+                    }
+                }
             }
-            promise.resolve(true)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                reactApplicationContext.registerReceiver(receiver, IntentFilter(sentAction), Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                reactApplicationContext.registerReceiver(receiver, IntentFilter(sentAction))
+            }
+
+            // Timeout: if no result in 10s, assume failure
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (!resolved) {
+                    resolved = true
+                    try { reactApplicationContext.unregisterReceiver(receiver) } catch (_: Exception) {}
+                    promise.reject("SMS_SEND_ERROR", "SMS send timed out — may have been blocked by system")
+                }
+            }, 10000)
+
+            if (parts.size == 1) {
+                smsManager.sendTextMessage(number, null, text, sentIntent, null)
+            } else {
+                val sentIntents = ArrayList<android.app.PendingIntent>()
+                // Only track the last part
+                for (i in parts.indices) {
+                    sentIntents.add(if (i == parts.size - 1) sentIntent else
+                        android.app.PendingIntent.getBroadcast(reactApplicationContext, i,
+                            Intent("com.agentcab.SMS_PART_$i"),
+                            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE))
+                }
+                smsManager.sendMultipartTextMessage(number, null, parts, sentIntents, null)
+            }
         } catch (e: Exception) {
             promise.reject("SMS_SEND_ERROR", "Failed to send SMS: ${e.message}", e)
         }

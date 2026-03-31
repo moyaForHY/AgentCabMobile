@@ -15,8 +15,17 @@ import { writeClipboard, shareText, shareFile, takePhoto } from './deviceCapabil
 import { downloadToDevice } from './fileDownloader'
 import { setWallpaper } from './screenshot'
 import { saveContact } from './contacts'
+import { actionStrings, permissionStrings, openPermissionEditor, isChinese } from '../utils/i18n'
 
 const { DeviceInfoManager } = NativeModules
+
+function guideToSettings(permKey: string) {
+  const s = permissionStrings(permKey)
+  showModal(s.title, s.message, [
+    { text: s.goSettings, onPress: () => openPermissionEditor() },
+    { text: s.cancel, style: 'cancel' as const },
+  ])
+}
 
 export type Action = {
   type: string
@@ -50,7 +59,7 @@ export async function executeActions(actions: Action[], skipConfirm = false): Pr
       const result = await withActionTimeout(executeSingleAction(action, skipConfirm), ACTION_TIMEOUT_MS)
       results.push(result)
     } catch (err: any) {
-      results.push({ type: action.type, success: false, error: err.message || 'Action timed out' })
+      results.push({ type: action.type, success: false, error: err.message || actionStrings().actionTimedOut })
     }
   }
   return results
@@ -60,6 +69,7 @@ export async function executeActions(actions: Action[], skipConfirm = false): Pr
  * Execute a single action.
  */
 async function executeSingleAction(action: Action, skipConfirm = false): Promise<ActionResult> {
+  const t = actionStrings()
   const confirm = skipConfirm
     ? async (_msg: string, fn: () => Promise<any>, type: string) => { await fn(); return ok(type) }
     : withConfirm
@@ -69,7 +79,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
       // ── File Operations ──
       case 'delete_file':
         return await confirm(
-          `Delete ${action.path?.split('/').pop() || 'file'}?`,
+          t.deleteFile(action.path?.split('/').pop() || 'file'),
           async () => {
             const p = action.path || ''
             const isMedia = p.startsWith('content://') ||
@@ -95,7 +105,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       case 'delete_files':
         return await confirm(
-          `Delete ${action.paths?.length || 0} files?`,
+          t.deleteFiles(action.paths?.length || 0),
           async () => {
             for (const p of action.paths) {
               try {
@@ -119,7 +129,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       case 'move_file':
         return await confirm(
-          `Move file to ${action.dest}?`,
+          t.moveFile(action.dest),
           () => FileSystem.moveFile(action.source, action.dest),
           action.type,
         )
@@ -136,9 +146,11 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         await FileSystem.writeTextFile(action.path, action.content)
         return ok(action.type)
 
-      case 'download_file':
-        await downloadToDevice(action.url, action.filename, action.mimeType)
+      case 'download_file': {
+        const dlPath = await downloadToDevice(action.url, action.filename, action.mimeType)
+        if (!dlPath) return { type: action.type, success: false, error: t.downloadFailed }
         return ok(action.type)
+      }
 
       // ── Calendar ──
       case 'create_event':
@@ -170,14 +182,14 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       case 'delete_event':
         return await confirm(
-          `Delete calendar event?`,
+          t.deleteEvent,
           () => Calendar.deleteEvent(action.eventId),
           action.type,
         )
 
       case 'create_reminder':
         return await confirm(
-          `Create reminder: "${action.title}" at ${new Date(action.time).toLocaleString()}?`,
+          t.createReminder(action.title, new Date(action.time).toLocaleString()),
           async () => {
             await Calendar.requestCalendarPermission()
             const reminderTime = new Date(action.time).getTime()
@@ -202,7 +214,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
           await Linking.openURL(`content://com.android.deskclock/alarm?hour=${action.hour}&minutes=${action.minute}`)
           return ok(action.type)
         } catch {
-          return { type: action.type, success: false, error: 'Could not open clock app. No handler for alarm intent.' }
+          return { type: action.type, success: false, error: t.noAlarmHandler }
         }
 
       // ── Communication ──
@@ -215,15 +227,22 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
             if (granted === PermissionsAndroid.RESULTS.GRANTED) {
               await DeviceInfo.sendSms(action.number, action.text)
               return ok(action.type)
+            } else {
+              const ps = permissionStrings('sms')
+              showModal(ps.title, ps.message, [
+                { text: ps.goSettings, onPress: () => openPermissionEditor() },
+                { text: ps.cancel, style: 'cancel' as const },
+              ])
             }
           } catch {}
         }
-        // Fallback: open SMS app
+        // Fallback: open SMS app (user needs to manually press send)
         try {
           await Linking.openURL(`sms:${action.number}?body=${encodeURIComponent(action.text)}`)
-          return ok(action.type)
+          const zh = require('../utils/i18n').isChinese()
+          return { type: action.type, success: true, error: zh ? '已打开短信应用，请手动点击发送' : 'SMS app opened, please press send manually' }
         } catch {
-          return { type: action.type, success: false, error: 'Could not send SMS.' }
+          return { type: action.type, success: false, error: t.sendSmsFailed }
         }
       }
 
@@ -237,7 +256,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       case 'save_contact':
         return await confirm(
-          `Save contact "${action.name}"?`,
+          t.saveContact(action.name),
           () => saveContact({
             name: action.name,
             phone: action.phone,
@@ -266,13 +285,23 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
           await Linking.openURL(action.url)
           return ok(action.type)
         } catch {
-          return { type: action.type, success: false, error: `Cannot open URL: ${action.url}` }
+          return { type: action.type, success: false, error: t.cannotOpenUrl(action.url) }
         }
 
       // ── Notification ──
-      case 'notify':
+      case 'notify': {
+        // Android 13+ requires POST_NOTIFICATIONS permission
+        const { PermissionsAndroid: PA, Platform: P } = require('react-native')
+        if (P.OS === 'android' && P.Version >= 33) {
+          const notifGranted = await PA.request(PA.PERMISSIONS.POST_NOTIFICATIONS)
+          if (notifGranted !== PA.RESULTS.GRANTED) {
+            if (notifGranted === PA.RESULTS.NEVER_ASK_AGAIN) guideToSettings('notifications')
+            return { type: action.type, success: false, error: isChinese() ? '通知权限未开启' : 'Notification permission denied' }
+          }
+        }
         await Notifications.showNotification(action.title, action.body)
         return ok(action.type)
+      }
 
       case 'alarm': {
         // Play alarm sound + vibrate + show notification
@@ -302,19 +331,19 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         } catch (e: any) {
           const msg = e?.message || ''
           if (msg.includes('not found') || msg.includes('not installed') || msg.includes('ActivityNotFoundException')) {
-            return { type: action.type, success: false, error: `App not installed: ${action.packageName}` }
+            return { type: action.type, success: false, error: t.appNotInstalled(action.packageName) }
           }
-          return { type: action.type, success: false, error: msg || `Failed to launch ${action.packageName}` }
+          return { type: action.type, success: false, error: msg || t.launchFailed(action.packageName) }
         }
 
       case 'uninstall_app':
         return await confirm(
-          `Uninstall ${action.packageName}?`,
+          t.uninstallApp(action.packageName),
           async () => {
             try {
               await Linking.openURL(`package:${action.packageName}`)
             } catch {
-              throw new Error('Could not open uninstall dialog.')
+              throw new Error(t.uninstallFailed)
             }
           },
           action.type,
@@ -325,77 +354,96 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
           await Linking.openURL(action.uri)
           return ok(action.type)
         } catch {
-          return { type: action.type, success: false, error: `Cannot open deeplink: ${action.uri}` }
+          return { type: action.type, success: false, error: t.cannotOpenDeeplink(action.uri) }
         }
 
       case 'set_wallpaper':
         return await confirm(
-          'Set as wallpaper?',
+          t.setWallpaper,
           () => setWallpaper(action.url || action.path),
           action.type,
         )
 
       // ── Accessibility ──
+      // All accessibility actions require the service to be enabled first
       case 'click_text':
-        return await confirm(
-          `Click "${action.text}"?`,
-          () => Accessibility.clickByText(action.text),
-          action.type,
-        )
-
       case 'set_text':
-        return await confirm(
-          `Set text to "${action.newText}"?`,
-          () => Accessibility.setTextByTarget(action.targetText, action.newText),
-          action.type,
-        )
-
       case 'long_press':
-        // Long press is click for now (accessibility doesn't distinguish easily)
-        return await confirm(
-          `Long press "${action.text}"?`,
-          () => Accessibility.clickByText(action.text),
-          action.type,
-        )
-
       case 'scroll':
-        await Accessibility.scroll(action.direction || 'down')
-        return ok(action.type)
-
       case 'swipe':
-        await Accessibility.swipe(action.startX, action.startY, action.endX, action.endY, action.duration || 300)
-        return ok(action.type)
-
       case 'press_back':
-        await Accessibility.pressBack()
-        return ok(action.type)
-
       case 'press_home':
-        await Accessibility.pressHome()
-        return ok(action.type)
+      case 'open_notifications': {
+        const a11yEnabled = await Accessibility.isAccessibilityEnabled()
+        if (!a11yEnabled) {
+          const zh = isChinese()
+          showModal(
+            zh ? '需要开启无障碍服务' : 'Accessibility Service Required',
+            zh ? '此操作需要开启AgentCab无障碍服务：\n\n设置 → 无障碍 → AgentCab → 开启'
+              : 'This action requires the AgentCab accessibility service.\n\nSettings → Accessibility → AgentCab → Enable',
+            [
+              { text: zh ? '去设置' : 'Open Settings', onPress: () => Linking.openURL('android.settings.ACCESSIBILITY_SETTINGS') },
+              { text: zh ? '取消' : 'Cancel', style: 'cancel' as const },
+            ],
+          )
+          return { type: action.type, success: false, error: zh ? '无障碍服务未开启' : 'Accessibility service not enabled' }
+        }
 
-      case 'open_notifications':
-        await Accessibility.openNotifications()
-        return ok(action.type)
+        switch (action.type) {
+          case 'click_text':
+            return await confirm(t.clickText(action.text), () => Accessibility.clickByText(action.text), action.type)
+          case 'set_text':
+            return await confirm(t.setText(action.newText), () => Accessibility.setTextByTarget(action.targetText, action.newText), action.type)
+          case 'long_press':
+            return await confirm(t.longPress(action.text), () => Accessibility.clickByText(action.text), action.type)
+          case 'scroll':
+            await Accessibility.scroll(action.direction || 'down'); return ok(action.type)
+          case 'swipe':
+            await Accessibility.swipe(action.startX, action.startY, action.endX, action.endY, action.duration || 300); return ok(action.type)
+          case 'press_back':
+            await Accessibility.pressBack(); return ok(action.type)
+          case 'press_home':
+            await Accessibility.pressHome(); return ok(action.type)
+          case 'open_notifications':
+            await Accessibility.openNotifications(); return ok(action.type)
+          default:
+            return ok(action.type)
+        }
+      }
 
       // ── Device Settings ──
       case 'set_brightness':
         return await confirm(
-          `Set brightness to ${action.level}?`,
-          () => DeviceInfoManager.setBrightness(action.level),
+          t.setBrightness(action.level),
+          async () => {
+            try {
+              await DeviceInfoManager.setBrightness(action.level)
+            } catch (e: any) {
+              // WRITE_SETTINGS is a special permission — guide user
+              if (e?.message?.includes?.('WRITE_SETTINGS') || e?.message?.includes?.('permission')) {
+                const zh = isChinese()
+                showModal(
+                  zh ? '需要修改系统设置权限' : 'System Settings Permission Required',
+                  zh ? '请允许AgentCab修改系统设置：\n\n系统会打开设置页面，请开启"允许修改系统设置"' : 'Please allow AgentCab to modify system settings.',
+                  [{ text: zh ? '去设置' : 'Open Settings', onPress: () => Linking.openURL('android.settings.action.MANAGE_WRITE_SETTINGS') }],
+                )
+              }
+              throw e
+            }
+          },
           action.type,
         )
 
       case 'set_volume':
         return await confirm(
-          `Set ${action.stream || 'media'} volume to ${action.level}?`,
+          t.setVolume(action.stream || 'media', action.level),
           () => DeviceInfoManager.setVolume(action.stream || 'media', action.level),
           action.type,
         )
 
       case 'toggle_wifi':
         return await confirm(
-          `Open Wi-Fi settings to ${action.enabled ? 'enable' : 'disable'} Wi-Fi?`,
+          t.toggleWifi(action.enabled),
           async () => {
             try {
               await Linking.openURL('android.settings.panel://com.android.settings.panel.action.WIFI')
@@ -409,25 +457,26 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       case 'toggle_bluetooth':
         return await confirm(
-          `Open Bluetooth settings to ${action.enabled ? 'enable' : 'disable'} Bluetooth?`,
+          t.toggleBluetooth(action.enabled),
           async () => {
             try {
               await Linking.openURL('android.settings.BLUETOOTH_SETTINGS')
             } catch {
-              throw new Error('Could not open Bluetooth settings.')
+              throw new Error(t.bluetoothSettingsFailed)
             }
           },
           action.type,
         )
 
       case 'save_to_gallery': {
-        const filename = action.filename || action.url.split('/').pop() || `download_${Date.now()}`
+        const filename = action.filename || action.url?.split('/').pop() || `download_${Date.now()}`
+        if (!action.url) return { type: action.type, success: false, error: t.downloadFailed }
         const downloadedPath = await downloadToDevice(action.url, filename)
         if (!downloadedPath) {
-          return { type: action.type, success: false, error: 'Failed to download file.' }
+          return { type: action.type, success: false, error: t.downloadFailed }
         }
         try {
-          await DeviceInfoManager.scanFile(downloadedPath)
+          if (DeviceInfoManager?.scanFile) await DeviceInfoManager.scanFile(downloadedPath)
         } catch {
           // Media scan failed but file was downloaded
         }
@@ -456,27 +505,22 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
           }
           return ok(action.type)
         } catch {
-          return { type: action.type, success: false, error: `Could not open settings${action.page ? ` (${action.page})` : ''}.` }
+          return { type: action.type, success: false, error: t.cannotOpenSettings(action.page) }
         }
       }
 
       case 'record_audio':
         try {
           await Linking.openURL('android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION')
+          return ok(action.type)
         } catch {
-          try {
-            // Fallback: open sound recorder via generic intent
-            await Linking.openURL('android.intent.action.MAIN')
-          } catch {
-            return { type: action.type, success: false, error: 'No voice recorder app found.' }
-          }
+          return { type: action.type, success: false, error: t.noRecorder }
         }
-        return ok(action.type)
 
       case 'take_photo': {
         const photo = await takePhoto()
         if (!photo) {
-          return { type: action.type, success: false, error: 'Photo capture cancelled or failed.' }
+          return { type: action.type, success: false, error: t.photoCancelled }
         }
         return { type: action.type, success: true }
       }
@@ -512,7 +556,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         return ok(action.type)
 
       default:
-        return { type: action.type, success: false, error: `Unknown action: ${action.type}` }
+        return { type: action.type, success: false, error: t.unknownAction(action.type) }
     }
   } catch (err: any) {
     return { type: action.type, success: false, error: err.message }
@@ -533,14 +577,15 @@ function sleep(ms: number): Promise<void> {
  * Wrap an action in a user confirmation dialog.
  */
 function withConfirm(message: string, execute: () => Promise<any>, type: string): Promise<ActionResult> {
+  const t = actionStrings()
   return new Promise(resolve => {
     showModal(
       '',
       message,
       [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve({ type, success: false, error: 'Cancelled by user' }) },
+        { text: t.cancel, style: 'cancel', onPress: () => resolve({ type, success: false, error: t.cancelledByUser }) },
         {
-          text: 'OK',
+          text: t.ok,
           onPress: async () => {
             try {
               await execute()

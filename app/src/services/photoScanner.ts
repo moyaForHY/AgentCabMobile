@@ -1,4 +1,5 @@
 import { NativeModules, Platform, PermissionsAndroid } from 'react-native'
+import { permissionStrings, openPermissionEditor } from '../utils/i18n'
 
 const { PhotoScanner } = NativeModules
 
@@ -38,7 +39,18 @@ export async function requestPhotoPermission(): Promise<boolean> {
     buttonNegative: 'Deny',
   })
 
-  return result === PermissionsAndroid.RESULTS.GRANTED
+  if (result === PermissionsAndroid.RESULTS.GRANTED) return true
+
+  // Only guide to Settings when system won't prompt again
+  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+    const { showModal } = require('../components/AppModal')
+    const s = permissionStrings('photos')
+    showModal(s.title, s.message, [
+      { text: s.goSettings, onPress: () => openPermissionEditor() },
+      { text: s.cancel, style: 'cancel' as const },
+    ])
+  }
+  return false
 }
 
 /**

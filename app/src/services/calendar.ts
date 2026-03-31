@@ -42,10 +42,25 @@ export async function requestCalendarPermission(): Promise<boolean> {
     writePermission,
   ])
 
-  return (
+  const granted =
     results[readPermission] === PermissionsAndroid.RESULTS.GRANTED &&
     results[writePermission] === PermissionsAndroid.RESULTS.GRANTED
-  )
+
+  if (!granted) {
+    // Only guide to Settings when system won't prompt again
+    const neverAsk = results[readPermission] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ||
+      results[writePermission] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+    if (neverAsk) {
+      const { showModal } = require('../components/AppModal')
+      const { permissionStrings, openPermissionEditor } = require('../utils/i18n')
+      const s = permissionStrings('calendar')
+      showModal(s.title, s.message, [
+        { text: s.goSettings, onPress: () => openPermissionEditor() },
+        { text: s.cancel, style: 'cancel' as const },
+      ])
+    }
+  }
+  return granted
 }
 
 /**
