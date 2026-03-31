@@ -449,33 +449,27 @@ export async function collectAllDeviceData(
   const properties = schema.properties || {}
   const result: Record<string, any> = {}
 
-  const promises: Promise<void>[] = []
   const failures: string[] = []
 
+  // Collect sequentially — Android only allows one permission dialog at a time
   for (const [key, prop] of Object.entries(properties) as [string, any][]) {
     const format = prop.format || ''
     if (format.startsWith('device:')) {
       const options = prop['x-device-options'] || {}
       const fallback = prop.type === 'array' ? [] : prop.type === 'object' ? {} : prop.type === 'string' ? '' : null
-      promises.push(
-        (async () => {
-          onProgress?.(key, 'collecting')
-          try {
-            const data = await collectByFormat(format, options)
-            result[key] = data ?? fallback
-            onProgress?.(key, 'done', data)
-          } catch (e: any) {
-            result[key] = fallback
-            onProgress?.(key, 'failed')
-            const label = prop.title || key
-            failures.push(`${label}: ${e.message || 'Permission denied'}`)
-          }
-        })(),
-      )
+      onProgress?.(key, 'collecting')
+      try {
+        const data = await collectByFormat(format, options)
+        result[key] = data ?? fallback
+        onProgress?.(key, 'done', data)
+      } catch (e: any) {
+        result[key] = fallback
+        onProgress?.(key, 'failed')
+        const label = prop.title || key
+        failures.push(`${label}: ${e.message || 'Permission denied'}`)
+      }
     }
   }
-
-  await Promise.all(promises)
 
   // Show failures to user
   if (failures.length > 0) {
