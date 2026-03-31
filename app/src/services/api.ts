@@ -1,6 +1,7 @@
 import axios from 'axios'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getAccessToken, setAccessToken } from './storage'
-import { isOnline, networkStatus } from './network'
+import { events } from './events'
 import { showModal } from '../components/AppModal'
 
 const API_BASE_URL = 'https://www.agentcab.ai/v1'
@@ -8,6 +9,35 @@ const API_BASE_URL = 'https://www.agentcab.ai/v1'
 export const api = axios.create({
   baseURL: API_BASE_URL,
 })
+
+// ── API Cache ──
+function cacheKey(url: string, params?: any): string {
+  const p = params ? JSON.stringify(params) : ''
+  return `api_cache_${url}_${p}`
+}
+
+export async function getCached<T>(url: string, params?: any): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey(url, params))
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function setCache(url: string, params: any, data: any) {
+  AsyncStorage.setItem(cacheKey(url, params), JSON.stringify(data)).catch(() => {})
+}
+
+/** GET with cache-first strategy. Returns cached data instantly via onCached, then fetches fresh. */
+export async function cachedApiGet<T>(url: string, params?: any, onCached?: (data: T) => void): Promise<T> {
+  // Serve from cache immediately
+  if (onCached) {
+    const cached = await getCached<any>(url, params)
+    if (cached?.data) onCached(cached.data as T)
+  }
+  // Then fetch fresh
+  const { data } = await api.get(url, { params })
+  return data.data as T
+}
 
 // Auth state listener for navigation
 let onAuthExpired: (() => void) | null = null
@@ -27,7 +57,15 @@ api.interceptors.request.use(async config => {
 let _lastServerErrorModal = 0
 
 api.interceptors.response.use(
-  response => response,
+  response => {
+    events.emit('network_ok')
+    // Cache GET responses
+    if (response.config.method === 'get' && response.data) {
+      const url = response.config.url || ''
+      setCache(url, response.config.params, response.data)
+    }
+    return response
+  },
   async error => {
     if (error.response?.status === 401) {
       const token = await getAccessToken()
@@ -64,14 +102,13 @@ api.interceptors.response.use(
     }
 
     if (!error.response) {
-      // Network-level failure — report to global network status (shows banner)
-      networkStatus.reportNetworkError()
+      // Network-level failure — show banner
+      events.emit('network_error')
 
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         return Promise.reject(new Error('Request timeout. Please check your connection and try again.'))
       }
-      // Check connectivity for a more helpful error message
-      const online = await isOnline().catch(() => false)
+      return Promise.reject(new Error('Network error. Please check your connection.'))
       if (!online) {
         return Promise.reject(new Error('You appear to be offline. Please check your internet connection and try again.'))
       }
@@ -349,8 +386,10 @@ export async function deleteReview(skillId: string) {
 }
 
 // Calls history
-export async function fetchCalls(page = 1, pageSize = 20) {
-  const { data } = await api.get('/calls', { params: { page, page_size: pageSize } })
+export async function fetchCalls(page = 1, pageSize = 20, status?: string) {
+  const params: any = { page, page_size: pageSize }
+  if (status) params.status = status
+  const { data } = await api.get('/calls', { params })
   return data.data as {
     items: Array<{
       id: string

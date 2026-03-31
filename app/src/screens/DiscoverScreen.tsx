@@ -64,17 +64,26 @@ export default function DiscoverScreen({ navigation }: any) {
   }, [])
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const PAGE_SIZE = 20
 
-  const load = async (q?: string, cat?: string) => {
-    setSearching(true)
+  const load = async (q?: string, cat?: string, p = 1, append = false) => {
+    if (p === 1) setSearching(true)
     try {
-      const result = await fetchSkills(1, 50, cat === 'all' ? undefined : cat, q || undefined)
-      const filtered = result.items.filter((s: Skill) => s.status === 'published' || s.status === 'active')
-      setSkills(filtered)
-      setStatuses(result.statuses || {})
-      // Cache initial load (no search/filter)
-      if (!q && (!cat || cat === 'all')) {
-        storage.setStringAsync('discover_skills', JSON.stringify({ skills: filtered, statuses: result.statuses || {} }))
+      const result = await fetchSkills(p, PAGE_SIZE, cat === 'all' ? undefined : cat, q || undefined)
+      const items = result.items.filter((s: Skill) => s.status === 'published' || s.status === 'active')
+      if (append) {
+        setSkills(prev => [...prev, ...items])
+      } else {
+        setSkills(items)
+      }
+      setStatuses(prev => ({ ...prev, ...(result.statuses || {}) }))
+      setHasMore(result.items.length === PAGE_SIZE)
+      setPage(p)
+      if (!q && (!cat || cat === 'all') && p === 1) {
+        storage.setStringAsync('discover_skills', JSON.stringify({ skills: items, statuses: result.statuses || {} }))
       }
     } catch {} finally { setLoading(false); setSearching(false) }
   }
@@ -82,7 +91,14 @@ export default function DiscoverScreen({ navigation }: any) {
   useEffect(() => { load() }, [])
   const onRefresh = async () => { setRefreshing(true); await load(search, activeCategory); setRefreshing(false) }
 
-  // Debounced search
+  const onEndReached = async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    await load(search, activeCategory, page + 1, true)
+    setLoadingMore(false)
+  }
+
+  // Debounced search — reset to page 1
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => {
@@ -203,6 +219,9 @@ export default function DiscoverScreen({ navigation }: any) {
         contentContainerStyle={s.list}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} /> : null}
         ListEmptyComponent={
           <View style={s.center}><Text style={s.emptyText}>{t.noApisFound}</Text></View>
         }

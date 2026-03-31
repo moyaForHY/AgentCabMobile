@@ -13,7 +13,7 @@ import {
 } from 'react-native'
 import { colors, radii, spacing, fontSize, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchCalls } from '../services/api'
+import { fetchCalls, getCached } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { events, EVENT_CALL_COMPLETED } from '../services/events'
 
@@ -83,31 +83,85 @@ type Filter = typeof FILTERS[number]
 export default function TasksScreen({ navigation }: any) {
   const { t } = useI18n()
   const [filter, setFilter] = useState<Filter>('all')
+  const [calls, setCalls] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [stats, setStats] = useState({ total: 0, success: 0, failed: 0, pending: 0 })
+  const PAGE_SIZE = 20
 
-  const callsFetcher = useCallback(async () => {
-    const data = await fetchCalls(1, 50)
-    return data.items
-  }, [])
+  const statusParam = filter === 'all' ? undefined : filter
 
-  const { data: calls, loading, refreshing, refresh } = useCachedData<any[]>('tasks_calls', callsFetcher, [])
+  const loadPage = useCallback(async (p: number, replace = false) => {
+    try {
+      const data = await fetchCalls(p, PAGE_SIZE, statusParam)
+      if (replace) {
+        setCalls(data.items)
+      } else {
+        setCalls(prev => [...prev, ...data.items])
+      }
+      // Only update stats from unfiltered requests (all tab or first load)
+      if (!statusParam) {
+        setStats({
+          total: data.total ?? 0,
+          success: (data as any).total_successful ?? 0,
+          failed: (data as any).total_failed ?? 0,
+          pending: (data as any).total_pending ?? 0,
+        })
+      }
+      setHasMore(data.items.length === PAGE_SIZE)
+      setPage(p)
+    } catch {}
+  }, [statusParam])
 
-  // ─── Refresh when global poller detects task completion ───
   useEffect(() => {
-    return events.on(EVENT_CALL_COMPLETED, () => { refresh() })
-  }, [refresh])
+    // Load cache first, then fetch fresh
+    const url = '/calls'
+    const params = statusParam ? { page: 1, page_size: PAGE_SIZE, status: statusParam } : { page: 1, page_size: PAGE_SIZE }
+    getCached<any>(url, params).then(cached => {
+      if (cached?.data?.items) {
+        setCalls(cached.data.items)
+        if (!statusParam && cached.data.total != null) {
+          setStats({
+            total: cached.data.total,
+            success: cached.data.total_successful ?? 0,
+            failed: cached.data.total_failed ?? 0,
+            pending: cached.data.total_pending ?? 0,
+          })
+        }
+        setLoading(false)
+      }
+    }).catch(() => {})
+    loadPage(1, true).finally(() => setLoading(false))
+  }, [filter])
 
-  const onRefresh = refresh
+  useEffect(() => {
+    return events.on(EVENT_CALL_COMPLETED, () => {
+      loadPage(1, true)
+    })
+  }, [loadPage])
 
-  const filtered = filter === 'all'
-    ? calls
-    : filter === 'pending'
-    ? calls.filter(c => c.status === 'pending' || c.status === 'running' || c.status === 'processing')
-    : calls.filter(c => c.status === filter)
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await loadPage(1, true)
+    setRefreshing(false)
+  }, [loadPage])
+
+  const onEndReached = useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    await loadPage(page + 1)
+    setLoadingMore(false)
+  }, [loadingMore, hasMore, page, loadPage])
+
+  const filtered = calls
   const counts = {
-    all: calls.length,
-    success: calls.filter(c => c.status === 'success').length,
-    failed: calls.filter(c => c.status === 'failed').length,
-    pending: calls.filter(c => c.status === 'pending' || c.status === 'running' || c.status === 'processing').length,
+    all: stats.total,
+    success: stats.success,
+    failed: stats.failed,
+    pending: stats.pending,
   }
 
   const renderCall = ({ item, index }: { item: any; index: number }) => (
@@ -195,6 +249,9 @@ export default function TasksScreen({ navigation }: any) {
         contentContainerStyle={s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         showsVerticalScrollIndicator={false}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.3}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} /> : null}
         ListEmptyComponent={
           <View style={s.empty}>
             <View style={s.emptyIcon}>
