@@ -3,7 +3,8 @@
  * Executes structured actions returned by APIs.
  * See DEVICE_PROTOCOL.md for the full action spec.
  */
-import { Alert, Linking, NativeModules } from 'react-native'
+import { Linking, NativeModules } from 'react-native'
+import { showModal } from '../components/AppModal'
 import * as FileSystem from './fileSystem'
 import { deletePhoto } from './photoScanner'
 import * as Calendar from './calendar'
@@ -40,13 +41,13 @@ function withActionTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /**
  * Execute a list of actions sequentially.
- * Returns results for each action.
+ * @param skipConfirm - if true, skip individual confirmation dialogs (used when user already confirmed at group level)
  */
-export async function executeActions(actions: Action[]): Promise<ActionResult[]> {
+export async function executeActions(actions: Action[], skipConfirm = false): Promise<ActionResult[]> {
   const results: ActionResult[] = []
   for (const action of actions) {
     try {
-      const result = await withActionTimeout(executeSingleAction(action), ACTION_TIMEOUT_MS)
+      const result = await withActionTimeout(executeSingleAction(action, skipConfirm), ACTION_TIMEOUT_MS)
       results.push(result)
     } catch (err: any) {
       results.push({ type: action.type, success: false, error: err.message || 'Action timed out' })
@@ -58,25 +59,34 @@ export async function executeActions(actions: Action[]): Promise<ActionResult[]>
 /**
  * Execute a single action.
  */
-async function executeSingleAction(action: Action): Promise<ActionResult> {
+async function executeSingleAction(action: Action, skipConfirm = false): Promise<ActionResult> {
+  const confirm = skipConfirm
+    ? async (_msg: string, fn: () => Promise<any>, type: string) => { await fn(); return ok(type) }
+    : withConfirm
+
   try {
     switch (action.type) {
       // ── File Operations ──
       case 'delete_file':
-        return await withConfirm(
+        return await confirm(
           `Delete ${action.path?.split('/').pop() || 'file'}?`,
           async () => {
+            const p = action.path || ''
+            const isMedia = p.startsWith('content://') ||
+              p.includes('/DCIM/') || p.includes('/Pictures/') ||
+              p.includes('/Movies/') || p.includes('/Music/') ||
+              /\.(jpg|jpeg|png|gif|webp|mp4|mov|mp3|m4a)$/i.test(p)
             try {
-              if (action.path.startsWith('content://')) {
-                return await deletePhoto(action.path)
+              if (isMedia) {
+                return await deletePhoto(p)
               }
-              return await FileSystem.deleteFile(action.path)
+              return await FileSystem.deleteFile(p)
             } catch (e: any) {
-              // Android 11+ may throw SecurityException for content:// URIs
-              // requiring MediaStore.createDeleteRequest user confirmation
-              if (e?.message?.includes?.('SecurityException') || e?.message?.includes?.('security')) {
-                throw new Error('This file requires user confirmation to delete on this Android version. Please delete it manually.')
-              }
+              // Fallback: try the other method
+              try {
+                if (isMedia) return await FileSystem.deleteFile(p)
+                else return await deletePhoto(p)
+              } catch {}
               throw e
             }
           },
@@ -84,7 +94,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         )
 
       case 'delete_files':
-        return await withConfirm(
+        return await confirm(
           `Delete ${action.paths?.length || 0} files?`,
           async () => {
             for (const p of action.paths) {
@@ -108,7 +118,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         )
 
       case 'move_file':
-        return await withConfirm(
+        return await confirm(
           `Move file to ${action.dest}?`,
           () => FileSystem.moveFile(action.source, action.dest),
           action.type,
@@ -143,14 +153,14 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         return ok(action.type)
 
       case 'delete_event':
-        return await withConfirm(
+        return await confirm(
           `Delete calendar event?`,
           () => Calendar.deleteEvent(action.eventId),
           action.type,
         )
 
       case 'create_reminder':
-        return await withConfirm(
+        return await confirm(
           `Create reminder: "${action.title}" at ${new Date(action.time).toLocaleString()}?`,
           async () => {
             await Calendar.requestCalendarPermission()
@@ -197,7 +207,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         }
 
       case 'save_contact':
-        return await withConfirm(
+        return await confirm(
           `Save contact "${action.name}"?`,
           () => saveContact({
             name: action.name,
@@ -269,7 +279,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         }
 
       case 'uninstall_app':
-        return await withConfirm(
+        return await confirm(
           `Uninstall ${action.packageName}?`,
           async () => {
             try {
@@ -290,7 +300,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         }
 
       case 'set_wallpaper':
-        return await withConfirm(
+        return await confirm(
           'Set as wallpaper?',
           () => setWallpaper(action.url || action.path),
           action.type,
@@ -298,14 +308,14 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
 
       // ── Accessibility ──
       case 'click_text':
-        return await withConfirm(
+        return await confirm(
           `Click "${action.text}"?`,
           () => Accessibility.clickByText(action.text),
           action.type,
         )
 
       case 'set_text':
-        return await withConfirm(
+        return await confirm(
           `Set text to "${action.newText}"?`,
           () => Accessibility.setTextByTarget(action.targetText, action.newText),
           action.type,
@@ -313,7 +323,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
 
       case 'long_press':
         // Long press is click for now (accessibility doesn't distinguish easily)
-        return await withConfirm(
+        return await confirm(
           `Long press "${action.text}"?`,
           () => Accessibility.clickByText(action.text),
           action.type,
@@ -341,21 +351,21 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
 
       // ── Device Settings ──
       case 'set_brightness':
-        return await withConfirm(
+        return await confirm(
           `Set brightness to ${action.level}?`,
           () => DeviceInfoManager.setBrightness(action.level),
           action.type,
         )
 
       case 'set_volume':
-        return await withConfirm(
+        return await confirm(
           `Set ${action.stream || 'media'} volume to ${action.level}?`,
           () => DeviceInfoManager.setVolume(action.stream || 'media', action.level),
           action.type,
         )
 
       case 'toggle_wifi':
-        return await withConfirm(
+        return await confirm(
           `Open Wi-Fi settings to ${action.enabled ? 'enable' : 'disable'} Wi-Fi?`,
           async () => {
             try {
@@ -369,7 +379,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
         )
 
       case 'toggle_bluetooth':
-        return await withConfirm(
+        return await confirm(
           `Open Bluetooth settings to ${action.enabled ? 'enable' : 'disable'} Bluetooth?`,
           async () => {
             try {
@@ -454,7 +464,7 @@ async function executeSingleAction(action: Action): Promise<ActionResult> {
 
       // ── Composite ──
       case 'confirm_actions':
-        return await withConfirm(
+        return await confirm(
           action.message,
           async () => {
             await executeActions(action.actions)
@@ -495,8 +505,8 @@ function sleep(ms: number): Promise<void> {
  */
 function withConfirm(message: string, execute: () => Promise<any>, type: string): Promise<ActionResult> {
   return new Promise(resolve => {
-    Alert.alert(
-      'Confirm',
+    showModal(
+      '',
       message,
       [
         { text: 'Cancel', style: 'cancel', onPress: () => resolve({ type, success: false, error: 'Cancelled by user' }) },

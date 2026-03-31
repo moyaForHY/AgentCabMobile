@@ -22,6 +22,7 @@ import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { fetchSkills, type Skill } from '../services/api'
 import { storage } from '../services/storage'
+import { usePinnedApis } from '../hooks/usePinnedApis'
 
 export default function DiscoverScreen({ navigation }: any) {
   const { t } = useI18n()
@@ -43,8 +44,10 @@ export default function DiscoverScreen({ navigation }: any) {
       }
     })
   }, [])
+  const { pinned, isPinned } = usePinnedApis()
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
+  const [showBookmarked, setShowBookmarked] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [searching, setSearching] = useState(false)
 
@@ -94,8 +97,8 @@ export default function DiscoverScreen({ navigation }: any) {
     return ['all', ...Array.from(cats)]
   }, [skills])
 
-  // Backend handles filtering, skills is already filtered
-  const filtered = skills
+  // Apply bookmark filter on top of backend results
+  const filtered = showBookmarked ? skills.filter(s => isPinned(s.id)) : skills
 
   const renderItem = ({ item }: { item: Skill }) => {
     const st = statuses[item.id]
@@ -154,6 +157,14 @@ export default function DiscoverScreen({ navigation }: any) {
           {searching && (
             <ActivityIndicator size="small" color={colors.primary} style={s.searchSpinner} />
           )}
+          <TouchableOpacity
+            style={[s.bookmarkBtn, showBookmarked && s.bookmarkBtnActive]}
+            onPress={() => setShowBookmarked(!showBookmarked)}
+            activeOpacity={0.7}>
+            <Text style={[s.bookmarkIcon, showBookmarked && s.bookmarkIconActive]}>
+              {showBookmarked ? '★' : '☆'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -212,9 +223,17 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(37, 99, 235, 0.06)',
   },
-  searchRow: { position: 'relative' as const },
-  searchSpinner: { position: 'absolute' as const, right: 12, top: 10 },
+  searchRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
+  searchSpinner: { position: 'absolute' as const, right: 52, top: 10 },
+  bookmarkBtn: {
+    width: 38, height: 38, borderRadius: 10, backgroundColor: '#f1f5f9',
+    justifyContent: 'center' as const, alignItems: 'center' as const,
+  },
+  bookmarkBtnActive: { backgroundColor: '#fffbeb' },
+  bookmarkIcon: { fontSize: 18, color: '#94a3b8' },
+  bookmarkIconActive: { color: '#f59e0b' },
   searchInput: {
+    flex: 1,
     backgroundColor: '#f1f5f9',
     borderRadius: 10,
     paddingHorizontal: 14,

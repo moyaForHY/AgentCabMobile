@@ -22,6 +22,7 @@ import ReviewCard from '../components/ReviewCard'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
+import { trackTask } from '../services/taskPoller'
 import type { PickedFile } from '../services/deviceCapabilities'
 
 type PageTab = 'use' | 'example'
@@ -247,18 +248,18 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       }
       const result = await callSkill(skill.id, { input, max_cost: skill.max_price_credits || undefined })
       taskManager.addTask(result.call_id, skill, input, result.credits_cost)
-      events.emit(EVENT_CALL_COMPLETED, {
-        call_id: result.call_id,
-        skill_name: skill.name,
-        status: result.status,
-      })
+      trackTask(result.call_id)
       events.emit(EVENT_WALLET_CHANGED)
       if (result.status === 'completed' || result.status === 'success') {
         taskManager.completeTask(result.call_id, result.output, result.actual_cost ?? undefined)
-        showModal(t.doneLabel, `${t.cost}: ${result.actual_cost ?? result.credits_cost} ${t.credits}`, [{ text: 'OK', onPress: () => navigation.goBack() }])
-      } else {
-        showModal(t.submitted, t.checkTasksTab, [{ text: 'OK', onPress: () => navigation.goBack() }])
+        events.emit(EVENT_CALL_COMPLETED, {
+          call_id: result.call_id,
+          skill_name: skill.name,
+          status: result.status,
+        })
       }
+      // Always navigate to result page
+      navigation.navigate('TaskResult', { taskId: result.call_id })
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.failed)
     } finally { setSubmitting(false); setUploadProgress(null) }
@@ -418,16 +419,55 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Create Automation */}
-            <TouchableOpacity
-              style={st.autoBtn}
-              onPress={() => navigation.navigate('CreateAutomation', {
-                preSelectedSkill: skill,
-                preInputValues: values,
-              })}
-              activeOpacity={0.7}>
-              <Text style={st.autoBtnText}>{t.createAutomation}</Text>
-            </TouchableOpacity>
+            {/* Quick Action Buttons */}
+            {(() => {
+              const requiredFields: string[] = (skill.input_schema as any)?.required || []
+              const props = (skill.input_schema?.properties as any) || {}
+              const missingManual = requiredFields.filter(key => {
+                const prop = props[key]
+                if (prop?.format?.startsWith('device:')) return false // auto-collected
+                const itemFmt = prop?.items?.format || ''
+                const isFile = prop?.format === 'file_id' || itemFmt === 'file_id' || key === 'file_ids' || key === 'file_id' || key === 'files' || key === 'file'
+                if (isFile) return !pickedFiles[key]?.length
+                return values[key] == null || values[key] === ''
+              })
+              const allFilled = missingManual.length === 0
+              return (
+                <View style={st.secondaryBtnRow}>
+                  <TouchableOpacity
+                    style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
+                    onPress={() => {
+                      if (!allFilled) {
+                        showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first')
+                        return
+                      }
+                      pin({ id: skillId, name: skill.name, presetValues: values, isShortcut: true })
+                      showModal(
+                        lang === 'zh' ? '快捷方式已创建' : 'Shortcut Created',
+                        lang === 'zh' ? '已保存到首页快捷操作，点击即可一键调用' : 'Saved to Home quick actions with current parameters',
+                      )
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={[st.secondaryBtnText, !allFilled && st.secondaryBtnTextDisabled]}>{lang === 'zh' ? '创建快捷方式' : 'Create Shortcut'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
+                    onPress={() => {
+                      if (!allFilled) {
+                        showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first')
+                        return
+                      }
+                      navigation.navigate('CreateAutomation', {
+                        preSelectedSkill: skill,
+                        preInputValues: values,
+                      })
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={[st.secondaryBtnText, !allFilled && st.secondaryBtnTextDisabled]}>{t.createAutomation}</Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            })()}
           </>
         ) : (
           <>
@@ -628,15 +668,21 @@ const st = StyleSheet.create({
   callBtnWrap: { borderRadius: 12, overflow: 'hidden' },
   callBtn: { paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderRadius: 12 },
   callBtnText: { fontSize: 15, fontWeight: fontWeight.bold, color: '#fff' },
-  autoBtn: {
+  secondaryBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginTop: 10,
+  },
+  secondaryBtn: {
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: colors.primary,
-    paddingVertical: 13,
+    paddingVertical: 12,
     alignItems: 'center',
   },
-  autoBtnText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.primary },
+  secondaryBtnText: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.primary },
+  secondaryBtnDisabled: { borderColor: colors.ink400, opacity: 0.5 },
+  secondaryBtnTextDisabled: { color: colors.ink400 },
 
   // Example tab
   exSection: { marginBottom: 16 },

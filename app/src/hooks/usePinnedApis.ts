@@ -8,6 +8,8 @@ export type PinnedApi = {
   id: string
   name: string
   customName?: string
+  presetValues?: Record<string, any>
+  isShortcut?: boolean  // true = shows in Home quick actions, false = just bookmarked
 }
 
 async function load(): Promise<PinnedApi[]> {

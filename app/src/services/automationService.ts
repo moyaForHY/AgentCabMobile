@@ -301,20 +301,8 @@ export async function executeRule(ruleId: string): Promise<void> {
   }
 }
 
-// ── Keep-alive service management ──
-
-async function syncKeepAlive(): Promise<void> {
-  if (!AlarmSchedulerModule) return
-  const rules = await getRules()
-  const hasEnabled = rules.some(r => r.enabled)
-  try {
-    if (hasEnabled) {
-      await AlarmSchedulerModule.startKeepAlive()
-    } else {
-      await AlarmSchedulerModule.stopKeepAlive()
-    }
-  } catch {}
-}
+// ── Keep-alive — delegated to taskPoller.syncKeepAlive ──
+import { syncKeepAlive } from './taskPoller'
 
 // ── Reschedule all (on boot / app start) ──
 

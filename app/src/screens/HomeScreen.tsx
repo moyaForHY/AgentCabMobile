@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   Animated,
+  ActivityIndicator,
   Easing,
   Modal,
   TextInput,
@@ -16,11 +17,15 @@ import LinearGradient from 'react-native-linear-gradient'
 import { colors, gradients, radii, spacing, fontSize, fontWeight } from '../utils/theme'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
-import { fetchWallet, fetchSkills, fetchCalls, type Skill } from '../services/api'
+import { fetchWallet, fetchSkills, fetchCalls, fetchSkillById, callSkill, type Skill } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 import { getRules, type AutomationRule } from '../services/automationService'
+import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
+import { trackTask } from '../services/taskPoller'
+import { taskManager } from '../services/taskManager'
+import { showModal } from '../components/AppModal'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -65,6 +70,58 @@ export default function HomeScreen({ navigation }: any) {
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renamingApi, setRenamingApi] = useState<any>(null)
   const [renameText, setRenameText] = useState('')
+  const [runningShortcut, setRunningShortcut] = useState<string | null>(null)
+
+  const handleQuickRun = async (api: any) => {
+    if (runningShortcut) return
+    setRunningShortcut(api.id)
+    try {
+      const skill = await fetchSkillById(api.id)
+      const formats = getDeviceFormats(skill.input_schema || {})
+
+      // Start with preset values
+      let input: Record<string, any> = { ...(api.presetValues || {}) }
+
+      // Check if there are manual fields without preset values
+      const props = skill.input_schema?.properties as Record<string, any> || {}
+      const manualFields = Object.entries(props).filter(([, p]: [string, any]) => !p.format?.startsWith('device:'))
+      const missingFields = manualFields.filter(([key]) => input[key] == null || input[key] === '')
+
+      if (missingFields.length > 0) {
+        // Has unfilled manual fields — navigate to detail page
+        navigation.navigate('SkillDetail', { skillId: api.id, autoUse: true })
+        setRunningShortcut(null)
+        return
+      }
+
+      // Collect device data
+      if (formats.length > 0) {
+        const deviceData = await collectAllDeviceData(skill.input_schema || {})
+        input = { ...input, ...deviceData }
+      }
+
+      // Call API
+      const result = await callSkill(skill.id, { input })
+      taskManager.addTask(result.call_id, skill, input, result.credits_cost)
+      trackTask(result.call_id)
+      events.emit(EVENT_WALLET_CHANGED)
+
+      // Refresh calls list immediately
+      refreshCalls()
+
+      if (result.status === 'completed' || result.status === 'success') {
+        events.emit(EVENT_CALL_COMPLETED, {
+          call_id: result.call_id,
+          skill_name: skill.name,
+          status: result.status,
+        })
+      }
+    } catch (err: any) {
+      showModal(t.errorTitle, err.message || t.failed)
+    } finally {
+      setRunningShortcut(null)
+    }
+  }
 
   useEffect(() => { getRules().then(setAutomations) }, [])
   // Refresh automations when coming back from AutomationsScreen
@@ -144,11 +201,11 @@ export default function HomeScreen({ navigation }: any) {
         </TouchableOpacity>
 
         {/* Pinned APIs — Shortcuts style */}
-        {pinned.length > 0 && (
+        {pinned.filter(p => p.isShortcut).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷操作' : 'Quick Actions'}</Text>
             <View style={styles.pinnedGrid}>
-              {pinned.map((api, i) => {
+              {pinned.filter(p => p.isShortcut).map((api, i) => {
                 const colors = [
                   ['#3b82f6', '#2563eb'], ['#f97316', '#ea580c'], ['#8b5cf6', '#7c3aed'],
                   ['#10b981', '#059669'], ['#ec4899', '#db2777'], ['#06b6d4', '#0891b2'],
@@ -159,19 +216,24 @@ export default function HomeScreen({ navigation }: any) {
                   <TouchableOpacity
                     key={api.id}
                     style={styles.pinnedCard}
-                    onPress={() => navigation.navigate('SkillDetail', { skillId: api.id, autoUse: true })}
+                    onPress={() => handleQuickRun(api)}
                     onLongPress={() => {
                       setRenamingApi(api)
                       setRenameText(api.customName || api.name)
                       setShowRenameModal(true)
                     }}
-                    activeOpacity={0.8}>
+                    activeOpacity={0.8}
+                    disabled={runningShortcut === api.id}>
                     <LinearGradient
-                      colors={[c1, c2]}
+                      colors={runningShortcut === api.id ? ['#94a3b8', '#64748b'] : [c1, c2]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.pinnedGradient}>
-                      <Text style={styles.pinnedIcon}>▶</Text>
+                      {runningShortcut === api.id ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={styles.pinnedIcon}>▶</Text>
+                      )}
                       <Text style={styles.pinnedName} numberOfLines={2}>{api.customName || api.name}</Text>
                     </LinearGradient>
                   </TouchableOpacity>
@@ -242,9 +304,16 @@ export default function HomeScreen({ navigation }: any) {
                         </View>
                       )}
                       <View style={styles.callInfo}>
-                        <Text style={styles.callName} numberOfLines={1}>
-                          {call.skill_name || t.unnamedSkill}
-                        </Text>
+                        <TouchableOpacity
+                          activeOpacity={0.6}
+                          onPress={(e) => {
+                            e.stopPropagation?.()
+                            if (call.skill_id) navigation.navigate('SkillDetail', { skillId: call.skill_id })
+                          }}>
+                          <Text style={[styles.callName, call.skill_id && { color: '#2563eb' }]} numberOfLines={1}>
+                            {call.skill_name || t.unnamedSkill}
+                          </Text>
+                        </TouchableOpacity>
                         <Text style={styles.callMeta}>
                           {call.credits_cost} {t.credits}
                           {call.duration_ms ? ` · ${(call.duration_ms / 1000).toFixed(1)}s` : ''}

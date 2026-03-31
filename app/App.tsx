@@ -10,13 +10,21 @@ import TaskNotification from './src/components/TaskNotification'
 import NetworkBanner from './src/components/NetworkBanner'
 import { checkForUpdate } from './src/services/updateChecker'
 import { initAutomationListener } from './src/services/automationService'
+import { scanPendingTasks } from './src/services/taskPoller'
 import SplashScreen from './src/screens/SplashScreen'
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true)
 
   useEffect(() => {
+    // Request notification permission on Android 13+
+    import('react-native').then(({ PermissionsAndroid, Platform }) => {
+      if (Platform.OS === 'android' && Platform.Version >= 33) {
+        PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => {})
+      }
+    })
     checkForUpdate()
+    scanPendingTasks()
     const cleanup = initAutomationListener()
     return cleanup
   }, [])

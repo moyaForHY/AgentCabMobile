@@ -110,8 +110,8 @@ export default function TaskResultScreen({ route }: any) {
         </View>
       )}
 
-      {/* Actions — only if backend allows */}
-      {actionsAllowed && output?.actions && Array.isArray(output.actions) && output.actions.length > 0 && (
+      {/* Actions */}
+      {output?.actions && Array.isArray(output.actions) && output.actions.length > 0 && (
         <ActionsSection actions={output.actions} t={t} taskId={taskId} />
       )}
 
@@ -204,47 +204,130 @@ export default function TaskResultScreen({ route }: any) {
 }
 
 function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; taskId: string }) {
-  const [executing, setExecuting] = useState(false)
-  const [executed, setExecuted] = useState(false)
+  // Build groups: each confirm_actions becomes a named group, notify auto-executes
+  type ActionGroup = { label: string; actions: Action[] }
+  const groups: ActionGroup[] = []
+
+  useEffect(() => {
+    // Auto-execute notify actions silently
+    for (const action of actions) {
+      if (action.type === 'notify') {
+        executeActions([action]).catch(() => {})
+      }
+    }
+  }, [])
+
+  for (const action of actions) {
+    if (action.type === 'notify') {
+      // Skip — auto-executed above
+      continue
+    }
+    if ((action.type === 'confirm_actions' || action.type === 'sequence') && Array.isArray(action.actions) && action.actions.length > 0) {
+      // Use the message as group label, or summarize from child types
+      const childTypes = [...new Set(action.actions.map((a: Action) => a.type))]
+      const label = action.message || `${childTypes.join(', ')} (${action.actions.length})`
+      groups.push({ label, actions: action.actions })
+    } else {
+      // Standalone action — put in its own group
+      const label = `${action.type}: ${action.path?.split('/').pop() || action.title || action.text || ''}`
+      groups.push({ label, actions: [action] })
+    }
+  }
+
+  const [executedGroups, setExecutedGroups] = useState<Set<number>>(new Set())
+  const [executingGroup, setExecutingGroup] = useState<number | null>(null)
 
   const storageKey = `actions_executed_${taskId}`
 
   useEffect(() => {
     storage.getStringAsync(storageKey).then(v => {
-      if (v === '1') setExecuted(true)
+      if (v) {
+        try { setExecutedGroups(new Set(JSON.parse(v))) } catch { if (v === '1') setExecutedGroups(new Set(groups.map((_, i) => i))) }
+      }
     }).catch(() => {})
   }, [storageKey])
 
+  const allExecuted = groups.length > 0 && groups.every((_, i) => executedGroups.has(i))
+
+  const handleExecuteGroup = async (idx: number, groupActions: Action[]) => {
+    setExecutingGroup(idx)
+    try {
+      const results = await executeActions(groupActions, true)
+      const failed = results.filter(r => !r.success)
+      const newExecuted = new Set(executedGroups)
+      newExecuted.add(idx)
+      setExecutedGroups(newExecuted)
+      storage.setStringAsync(storageKey, JSON.stringify([...newExecuted])).catch(() => {})
+      if (failed.length > 0) {
+        showModal(t.doneLabel, `${results.length - failed.length}/${results.length}`)
+      }
+    } catch (err: any) {
+      showModal(t.errorTitle, err.message)
+    } finally {
+      setExecutingGroup(null)
+    }
+  }
+
+  if (groups.length === 0) return null
+
+  return (
+    <View style={s.card}>
+      <Text style={s.sectionTitle}>{t.actionsLabel} ({groups.reduce((n, g) => n + g.actions.length, 0)})</Text>
+      {groups.map((group, idx) => {
+        const done = executedGroups.has(idx)
+        const running = executingGroup === idx
+        return (
+          <View key={idx} style={s.actionGroup}>
+            <View style={s.actionGroupHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.actionGroupType}>{group.label}</Text>
+                <Text style={s.actionGroupDetail}>{group.actions.length} {group.actions.length === 1 ? 'action' : 'actions'}</Text>
+              </View>
+              <TouchableOpacity
+                style={[s.actionGroupBtn, done && s.actionGroupBtnDone]}
+                onPress={() => !done && !running && handleExecuteGroup(idx, group.actions)}
+                disabled={done || running}
+                activeOpacity={0.7}>
+                {running ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={s.actionGroupBtnText}>{done ? '✓' : t.executeAll}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )
+      })}
+
+      {allExecuted && (
+        <View style={s.allDoneBadge}>
+          <Text style={s.allDoneText}>✓ {t.executed}</Text>
+        </View>
+      )}
+    </View>
+  )
+}
+
+// Keep old execute button reference for backward compat
+function _LegacyActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; taskId: string }) {
+  const [executing, setExecuting] = useState(false)
+  const [executed, setExecuted] = useState(false)
+  const storageKey = `actions_executed_${taskId}`
+  useEffect(() => { storage.getStringAsync(storageKey).then(v => { if (v === '1') setExecuted(true) }).catch(() => {}) }, [storageKey])
   const handleExecute = async () => {
     setExecuting(true)
     try {
       const results = await executeActions(actions)
       const failedResults = results.filter(r => !r.success)
-      if (failedResults.length === 0) {
-        showModal('✓', t.actionsExecuted.replace('{0}', String(results.length)))
-      } else {
-        showModal(t.doneLabel, t.actionsPartial.replace('{0}', String(results.length - failedResults.length)).replace('{1}', String(failedResults.length)))
-      }
+      if (failedResults.length === 0) showModal('✓', t.actionsExecuted.replace('{0}', String(results.length)))
+      else showModal(t.doneLabel, t.actionsPartial.replace('{0}', String(results.length - failedResults.length)).replace('{1}', String(failedResults.length)))
       setExecuted(true)
       storage.setStringAsync(storageKey, '1').catch(() => {})
-    } catch (err: any) {
-      showModal(t.errorTitle, err.message)
-    } finally {
-      setExecuting(false)
-    }
+    } catch (err: any) { showModal(t.errorTitle, err.message) }
+    finally { setExecuting(false) }
   }
-
   return (
     <View style={s.card}>
-      <Text style={s.sectionTitle}>{t.actionsLabel} ({actions.length})</Text>
-      {actions.map((action, i) => (
-        <View key={i} style={s.actionItem}>
-          <View style={s.actionDot} />
-          <Text style={s.actionLabel}>
-            {action.type === 'confirm_actions' ? action.message : `${action.type}: ${action.path || action.text || action.title || action.url || action.packageName || ''}`}
-          </Text>
-        </View>
-      ))}
       <TouchableOpacity
         style={[s.executeBtn, (executing || executed) && s.executeBtnDone]}
         onPress={handleExecute}
@@ -404,6 +487,53 @@ const s = StyleSheet.create({
     color: colors.ink700,
     flex: 1,
     lineHeight: 18,
+  },
+  actionGroup: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(37,99,235,0.06)',
+    paddingBottom: 10,
+  },
+  actionGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  actionGroupType: {
+    fontSize: 14,
+    fontWeight: fontWeight.semibold,
+    color: colors.ink950,
+    marginBottom: 2,
+  },
+  actionGroupDetail: {
+    fontSize: 11,
+    color: colors.ink500,
+    marginTop: 1,
+  },
+  actionGroupBtn: {
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginLeft: 12,
+  },
+  actionGroupBtnDone: {
+    backgroundColor: '#059669',
+  },
+  actionGroupBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+  },
+  allDoneBadge: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  allDoneText: {
+    color: '#059669',
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
   },
   executeBtn: {
     marginHorizontal: 16,
