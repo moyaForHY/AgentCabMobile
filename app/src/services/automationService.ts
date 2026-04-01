@@ -196,6 +196,55 @@ export async function scheduleRule(rule: AutomationRule): Promise<void> {
   const triggerAt = getNextTriggerTime(rule.schedule)
   const interval = getRepeatInterval(rule.schedule)
   await AlarmSchedulerModule.scheduleAlarm(rule.id, triggerAt, interval)
+
+  // MIUI/Xiaomi: guide user to disable battery restrictions (once)
+  const { getDeviceBrand, isChinese } = require('../utils/i18n')
+  const brand = getDeviceBrand()
+  if (brand === 'xiaomi' || brand === 'huawei' || brand === 'vivo' || brand === 'oppo') {
+    const prompted = await storage.getStringAsync('automation_battery_prompted')
+    if (!prompted) {
+      await storage.setStringAsync('automation_battery_prompted', '1')
+      const { showModal } = require('../components/AppModal')
+      const { Linking } = require('react-native')
+      const zh = isChinese()
+
+      const brandGuide: Record<string, { title: string; msg: string }> = {
+        xiaomi: {
+          title: zh ? '开启后台运行权限' : 'Enable Background Running',
+          msg: zh
+            ? '为确保自动化任务准时执行，请进行以下设置：\n\n1. 自启动：设置 → 应用设置 → 应用管理 → AgentCab → 自启动 → 开启\n2. 省电策略：设置 → 电池 → AgentCab → 无限制\n3. 锁定后台：在最近任务中长按 AgentCab → 锁定'
+            : 'To ensure automations run on time:\n\n1. Autostart: Settings → Apps → AgentCab → Autostart → Enable\n2. Battery: Settings → Battery → AgentCab → No restrictions\n3. Lock in recents: Long press AgentCab in recent tasks → Lock',
+        },
+        huawei: {
+          title: zh ? '开启后台运行权限' : 'Enable Background Running',
+          msg: zh
+            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用和服务 → 应用管理 → AgentCab → 自启动 → 开启\n2. 电池：设置 → 电池 → 应用启动管理 → AgentCab → 手动管理 → 全部允许'
+            : 'Please configure:\n\n1. Autostart: Settings → Apps → AgentCab → Autostart → Enable\n2. Battery: Settings → Battery → App launch → AgentCab → Manual → Allow all',
+        },
+        vivo: {
+          title: zh ? '开启后台运行权限' : 'Enable Background Running',
+          msg: zh
+            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用与权限 → 自启动管理 → AgentCab → 开启\n2. 电池：设置 → 电池 → 后台耗电管理 → AgentCab → 允许后台运行'
+            : 'Please configure:\n\n1. Autostart: Settings → Apps → Autostart → AgentCab → Enable\n2. Battery: Settings → Battery → Background power → AgentCab → Allow',
+        },
+        oppo: {
+          title: zh ? '开启后台运行权限' : 'Enable Background Running',
+          msg: zh
+            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用管理 → 自启动管理 → AgentCab → 开启\n2. 电池：设置 → 电池 → 省电优化 → AgentCab → 关闭优化'
+            : 'Please configure:\n\n1. Autostart: Settings → Apps → Autostart → AgentCab → Enable\n2. Battery: Settings → Battery → Power saving → AgentCab → Disable',
+        },
+      }
+
+      const guide = brandGuide[brand] || brandGuide.xiaomi
+      showModal(guide.title, guide.msg, [
+        { text: zh ? '去设置' : 'Open Settings', onPress: () => {
+          const { openPermissionEditor } = require('../utils/i18n')
+          openPermissionEditor()
+        }},
+        { text: zh ? '知道了' : 'Got it', style: 'cancel' as const },
+      ])
+    }
+  }
 }
 
 export async function cancelRule(id: string): Promise<void> {
@@ -229,36 +278,9 @@ export async function executeRule(ruleId: string): Promise<void> {
 
     const result = await callSkill(rule.skillId, { input })
 
-    // Poll for completion if async
-    let finalResult = result
-    if (result.status === 'pending' || result.status === 'running' || result.status === 'processing') {
-      finalResult = await pollForCompletion(result.call_id, 5 * 60 * 1000)
-    }
-
-    // Auto-execute safe actions if present
-    const output = finalResult.output_data || finalResult.output
-    if (finalResult.actions_allowed && output?.actions && Array.isArray(output.actions)) {
-      const safeActions = output.actions.filter((a: Action) => !DANGEROUS_ACTIONS.has(a.type))
-      const dangerousActions = output.actions.filter((a: Action) => DANGEROUS_ACTIONS.has(a.type))
-
-      if (safeActions.length > 0) {
-        await executeActions(safeActions)
-      }
-
-      // Store dangerous actions for user confirmation later
-      if (dangerousActions.length > 0) {
-        const pending = await storage.getStringAsync('pending_actions') || '[]'
-        const list = JSON.parse(pending)
-        list.push({
-          ruleId,
-          skillName: rule.skillName,
-          callId: finalResult.call_id || result.call_id,
-          actions: dangerousActions,
-          timestamp: new Date().toISOString(),
-        })
-        await storage.setStringAsync('pending_actions', JSON.stringify(list))
-      }
-    }
+    // Use unified taskPoller for monitoring — works in background via AlarmManager
+    const { trackTask } = require('./taskPoller')
+    trackTask(result.call_id)
 
     // Update lastRun
     rule.lastRun = new Date().toISOString()
@@ -268,22 +290,6 @@ export async function executeRule(ruleId: string): Promise<void> {
       allRules[idx].lastRun = rule.lastRun
       await saveRules(allRules)
     }
-
-    // Update notification
-    const actionCount = output?.actions?.length || 0
-    const notifText = actionCount > 0
-      ? `Completed — ${actionCount} actions executed`
-      : 'Completed — tap to view result'
-    try {
-      await AlarmSchedulerModule?.updateNotification(ruleId, `${rule.skillName}`, notifText)
-    } catch {}
-
-    events.emit(EVENT_AUTOMATION_EXECUTED, {
-      ruleId,
-      skillName: rule.skillName,
-      status: result.status || 'completed',
-      callId: result.call_id,
-    })
   } catch (e: any) {
     console.error('Automation execution failed:', e.message)
 
