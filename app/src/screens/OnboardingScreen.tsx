@@ -2,6 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react'
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Dimensions,
   FlatList,
@@ -19,81 +20,127 @@ import { colors, fontWeight as fw } from '../utils/theme'
 const { width: W, height: H } = Dimensions.get('window')
 const SB = StatusBar.currentHeight || 44
 
-// ─── Illustration: Page 1 — "AI that acts" ───────────────────
-// Abstract phone with an arm/ray reaching outward
+// ─── Illustrations (Gemini-generated images) ────────────────
 function IllustrationAct() {
-  const float = useRef(new Animated.Value(0)).current
+  return <Image source={require('../assets/images/onboarding1.jpg')} style={ill.image} resizeMode="contain" />
+}
+function IllustrationSkills() {
+  return <Image source={require('../assets/images/onboarding2.jpg')} style={ill.image} resizeMode="contain" />
+}
+function IllustrationAutomate() {
+  return <Image source={require('../assets/images/onboarding3.jpg')} style={ill.image} resizeMode="contain" />
+}
+
+// ─── Old Illustration: Page 1 (unused) ────────────────────────
+function _OldIllustrationAct() {
+  const fadeIn = useRef(new Animated.Value(0)).current
+  const slideLeft = useRef(new Animated.Value(-30)).current
+  const slideRight = useRef(new Animated.Value(30)).current
   const pulse = useRef(new Animated.Value(0.6)).current
-  const rayExtend = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, { toValue: -8, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start()
+    Animated.parallel([
+      Animated.timing(fadeIn, { toValue: 1, duration: 800, useNativeDriver: true }),
+      Animated.spring(slideLeft, { toValue: 0, friction: 6, tension: 40, useNativeDriver: true }),
+      Animated.spring(slideRight, { toValue: 0, friction: 6, tension: 40, useNativeDriver: true }),
+    ]).start()
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 0.6, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     ).start()
-    Animated.timing(rayExtend, { toValue: 1, duration: 1200, delay: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
   }, [])
+
+  // Author avatar (left side)
+  const Author = ({ y, delay, label }: { y: number; delay: number; label: string }) => {
+    const a = useRef(new Animated.Value(0)).current
+    useEffect(() => { Animated.spring(a, { toValue: 1, friction: 5, delay, useNativeDriver: true }).start() }, [])
+    return (
+      <Animated.View style={{ position: 'absolute', left: 10, top: y, opacity: a, transform: [{ scale: a }], alignItems: 'center' }}>
+        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#dbeafe', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#93c5fd' }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#2563eb' }}>{label}</Text>
+        </View>
+      </Animated.View>
+    )
+  }
+
+  // Clone node (center)
+  const Clone = ({ x, y, delay, size }: { x: number; y: number; delay: number; size: number }) => {
+    const a = useRef(new Animated.Value(0)).current
+    useEffect(() => { Animated.spring(a, { toValue: 1, friction: 5, delay, useNativeDriver: true }).start() }, [])
+    return (
+      <Animated.View style={{
+        position: 'absolute', left: x - size / 2, top: y - size / 2,
+        width: size, height: size, borderRadius: size / 2,
+        backgroundColor: '#2563eb', opacity: a, transform: [{ scale: a }],
+        shadowColor: '#2563eb', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3,
+      }} />
+    )
+  }
+
+  // User avatar (right side)
+  const User = ({ y, delay, label }: { y: number; delay: number; label: string }) => {
+    const a = useRef(new Animated.Value(0)).current
+    useEffect(() => { Animated.spring(a, { toValue: 1, friction: 5, delay, useNativeDriver: true }).start() }, [])
+    return (
+      <Animated.View style={{ position: 'absolute', right: 10, top: y, opacity: a, transform: [{ scale: a }], alignItems: 'center' }}>
+        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#fef3c7', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fbbf24' }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#d97706' }}>{label}</Text>
+        </View>
+      </Animated.View>
+    )
+  }
 
   return (
     <View style={ill.container}>
       {/* Background glow */}
-      <View style={[ill.glow, { backgroundColor: 'rgba(37,99,235,0.04)', width: 280, height: 280, borderRadius: 140 }]} />
-      <View style={[ill.glow, { backgroundColor: 'rgba(37,99,235,0.06)', width: 200, height: 200, borderRadius: 100 }]} />
+      <View style={[ill.glow, { backgroundColor: 'rgba(37,99,235,0.03)', width: 300, height: 300, borderRadius: 150 }]} />
 
-      {/* Phone body */}
-      <Animated.View style={[ill.phone, { transform: [{ translateY: float }] }]}>
-        <View style={ill.phoneNotch} />
-        {/* Screen content lines */}
-        <View style={ill.phoneLine1} />
-        <View style={ill.phoneLine2} />
-        <View style={ill.phoneLine3} />
+      {/* Authors (left) */}
+      <Animated.View style={{ position: 'absolute', left: 0, top: 0, width: 280, height: 240, opacity: fadeIn, transform: [{ translateX: slideLeft }] }}>
+        <Author y={50} delay={0} label="A" />
+        <Author y={110} delay={150} label="B" />
+        <Author y={170} delay={300} label="C" />
 
-        {/* Action dot — the "hand" reaching out */}
-        <Animated.View style={[ill.actionOrb, { opacity: pulse }]} />
+        {/* Arrows from authors to center */}
+        {[70, 130, 190].map((y, i) => (
+          <View key={i} style={{ position: 'absolute', left: 50, top: y - 1, width: 50, height: 2, backgroundColor: 'rgba(37,99,235,0.15)' }}>
+            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderLeftWidth: 6, borderLeftColor: 'rgba(37,99,235,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
+          </View>
+        ))}
       </Animated.View>
 
-      {/* Extending rays from phone */}
-      {[30, -15, 60].map((angle, i) => (
-        <Animated.View
-          key={i}
-          style={[
-            ill.ray,
-            {
-              transform: [
-                { rotate: `${angle}deg` },
-                { scaleX: rayExtend },
-                { translateX: 60 + i * 15 },
-              ],
-              opacity: Animated.multiply(rayExtend, new Animated.Value(0.7 - i * 0.15)),
-            },
-          ]}
-        />
-      ))}
+      {/* Clone nodes (center) */}
+      <Clone x={140} y={70} delay={200} size={24} />
+      <Clone x={125} y={120} delay={350} size={28} />
+      <Clone x={155} y={120} delay={400} size={20} />
+      <Clone x={140} y={170} delay={500} size={22} />
 
-      {/* Floating particles */}
-      {[
-        { x: 90, y: -60, size: 8, delay: 0 },
-        { x: -80, y: -40, size: 6, delay: 400 },
-        { x: 70, y: 50, size: 5, delay: 800 },
-        { x: -60, y: 70, size: 7, delay: 200 },
-      ].map((p, i) => (
-        <FloatingDot key={i} x={p.x} y={p.y} size={p.size} delay={p.delay} />
-      ))}
+      {/* Center marketplace label */}
+      <Animated.View style={{ position: 'absolute', top: 10, alignSelf: 'center', opacity: fadeIn }}>
+        <View style={{ backgroundColor: 'rgba(37,99,235,0.08)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 }}>
+          <Text style={{ fontSize: 10, fontWeight: '600', color: '#2563eb', letterSpacing: 0.5 }}>MARKETPLACE</Text>
+        </View>
+      </Animated.View>
+
+      {/* Users (right) */}
+      <Animated.View style={{ position: 'absolute', right: 0, top: 0, width: 280, height: 240, opacity: fadeIn, transform: [{ translateX: slideRight }] }}>
+        {/* Arrows from center to users */}
+        {[90, 150].map((y, i) => (
+          <View key={i} style={{ position: 'absolute', right: 50, top: y - 1, width: 50, height: 2, backgroundColor: 'rgba(217,119,6,0.15)' }}>
+            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderLeftWidth: 6, borderLeftColor: 'rgba(217,119,6,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
+          </View>
+        ))}
+        <User y={70} delay={400} label="1" />
+        <User y={130} delay={550} label="2" />
+      </Animated.View>
     </View>
   )
 }
 
-// ─── Illustration: Page 2 — "One app, many skills" ───────────
-// Honeycomb grid of connected nodes
-function IllustrationSkills() {
+// ─── Old Illustration: Page 2 (unused) ────────────────────────
+function _OldIllustrationSkills() {
   const scale = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
@@ -155,9 +202,8 @@ function IllustrationSkills() {
   )
 }
 
-// ─── Illustration: Page 3 — "Automate your life" ─────────────
-// Clock with orbiting elements
-function IllustrationAutomate() {
+// ─── Old Illustration: Page 3 (unused) ────────────────────────
+function _OldIllustrationAutomate() {
   const spin = useRef(new Animated.Value(0)).current
   const spinSlow = useRef(new Animated.Value(0)).current
   const handTick = useRef(new Animated.Value(0)).current
@@ -382,9 +428,14 @@ export default function OnboardingScreen({ navigation, onDone }: any) {
   )
 }
 
-// ─── Illustration shared styles ──────────────────────────────
+// ─── Illustration styles ─────────────────────────────────────
 
 const ill = StyleSheet.create({
+  image: {
+    width: W * 0.85,
+    height: W * 0.85 * 0.75, // 4:3 ratio
+    borderRadius: 16,
+  },
   container: {
     width: 280,
     height: 240,

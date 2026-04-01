@@ -17,6 +17,7 @@ import { fetchCalls, getCached } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { events, EVENT_CALL_COMPLETED } from '../services/events'
 import Icon from 'react-native-vector-icons/Feather'
+import { TaskCardSkeleton } from '../components/Skeleton'
 
 // ─── Status Pill ─────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -218,8 +219,8 @@ export default function TasksScreen({ navigation }: any) {
 
   if (loading) {
     return (
-      <View style={s.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={[s.container, { paddingHorizontal: 16, paddingTop: 16 }]}>
+        {[0, 1, 2, 3, 4, 5].map(i => <TaskCardSkeleton key={i} />)}
       </View>
     )
   }
@@ -250,6 +251,7 @@ export default function TasksScreen({ navigation }: any) {
         contentContainerStyle={s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         showsVerticalScrollIndicator={false}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.3}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} /> : null}

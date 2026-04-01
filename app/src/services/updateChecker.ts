@@ -2,10 +2,10 @@ import { Linking } from 'react-native'
 import { showModal } from '../components/AppModal'
 
 // Must match android/app/build.gradle versionCode
-const CURRENT_VERSION_CODE = 3
+const CURRENT_VERSION_CODE = 10
 
 const VERSION_URL = 'https://www.agentcab.ai/app-version.json'
-const DOWNLOAD_URL = 'https://www.agentcab.ai/AgentCab.apk'
+const DOWNLOAD_URL = 'https://www.agentcab.ai/agentcab-latest.apk'
 
 type AppVersionInfo = {
   version: string

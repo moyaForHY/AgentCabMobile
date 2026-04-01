@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, View, Text, Pressable, StatusBar } from 'react-native'
+import { ActivityIndicator, View, Text, Pressable, StatusBar, Linking } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
@@ -115,15 +115,53 @@ function MainTabs() {
   )
 }
 
+const linking = {
+  prefixes: ['https://www.agentcab.ai', 'agentcab://'],
+  config: {
+    screens: {
+      SkillDetail: {
+        path: 'skills/:skillId',
+      },
+    },
+  },
+}
+
+function parseSkillId(url: string): string | null {
+  try {
+    // Handle https://www.agentcab.ai/skills/{id}
+    const httpsMatch = url.match(/agentcab\.ai\/skills\/([^/?#]+)/)
+    if (httpsMatch) return httpsMatch[1]
+    // Handle agentcab://skill/{id}
+    const customMatch = url.match(/agentcab:\/\/skill\/([^/?#]+)/)
+    if (customMatch) return customMatch[1]
+  } catch {}
+  return null
+}
+
 export default function AppNavigator() {
   const { isLoggedIn, isLoading } = useAuth()
   const { t } = useI18n()
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
 
+  const handleDeepLink = (url: string) => {
+    const skillId = parseSkillId(url)
+    if (skillId && navigationRef.current) {
+      navigationRef.current.navigate('SkillDetail' as never, { skillId } as never)
+    }
+  }
+
   useEffect(() => {
     storage.getStringAsync('onboarding_done').then(val => {
       setOnboardingDone(val === '1')
     })
+  }, [])
+
+  useEffect(() => {
+    Linking.getInitialURL().then(url => {
+      if (url) handleDeepLink(url)
+    })
+    const sub = Linking.addEventListener('url', ({ url }) => handleDeepLink(url))
+    return () => sub.remove()
   }, [])
 
   if (isLoading || onboardingDone === null) {
@@ -135,7 +173,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle }}>
         {!onboardingDone && (
           <Stack.Screen name="Onboarding">

@@ -224,12 +224,12 @@ export default {
   disabled: 'Disabled',
 
   // Onboarding
-  onboardingTitle1: 'AI that acts',
-  onboardingDesc1: 'Not just answers. AgentCab helps you get things done on your phone.',
-  onboardingTitle2: 'One app, many skills',
-  onboardingDesc2: 'Invoice scanning, resume screening, phone cleanup — all in one place, pay per use.',
-  onboardingTitle3: 'Automate your life',
-  onboardingDesc3: 'Set it once, runs on schedule. Your AI assistant works while you sleep.',
+  onboardingTitle1: 'Open AI Clone Marketplace',
+  onboardingDesc1: 'AgentCab is an open marketplace for AI clones. Anyone can create and publish AI clones, anyone can call them on demand. Each clone is an independent AI capability.',
+  onboardingTitle2: 'Use it, not just chat',
+  onboardingDesc2: 'These clones are not chatbots — they actually do things: organize invoices, screen resumes, detect scams, generate PPTs, analyze data. One call, real results.',
+  onboardingTitle3: 'Your phone, AI\'s hands and feet',
+  onboardingDesc3: 'On mobile, clones can read SMS, calls, photos, and take actions — create events, send alerts, delete files. Set up automations and let AI work for you continuously.',
   onboardingSkip: 'Skip',
   onboardingGetStarted: 'Get Started',
 

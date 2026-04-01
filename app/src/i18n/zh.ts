@@ -224,12 +224,12 @@ export default {
   disabled: '已禁用',
 
   // Onboarding
-  onboardingTitle1: '能做事的 AI',
-  onboardingDesc1: '不只是回答问题，AI 帮你在手机上把事做完。',
-  onboardingTitle2: '一个入口，无限技能',
-  onboardingDesc2: '发票整理、简历评估、手机瘦身——按次付费，用多少花多少。',
-  onboardingTitle3: '让 AI 自动帮你',
-  onboardingDesc3: '设置一次，定时运行。你睡觉时 AI 替你干活。',
+  onboardingTitle1: '开放的 AI 分身市场',
+  onboardingDesc1: 'AgentCab 是一个开放的 AI 分身市场。任何人可以创建、发布 AI 分身，任何人可以按需调用。每个分身是一个独立的 AI 能力。',
+  onboardingTitle2: '用起来，而不只是聊天',
+  onboardingDesc2: '这些分身不是聊天机器人——它们能真正做事：整理发票、筛简历、检测诈骗、生成PPT、分析数据。调用一次，拿到结果。',
+  onboardingTitle3: '你的手机，AI 的手和脚',
+  onboardingDesc3: '在手机上，分身还能读取短信、通话、相册等数据，并执行操作——创建日程、发送提醒、删除文件。设置自动化，让 AI 持续替你工作。',
   onboardingSkip: '跳过',
   onboardingGetStarted: '开始使用',
 

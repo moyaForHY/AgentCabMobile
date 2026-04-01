@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 240" width="280" height="240">
+  <defs>
+    <!-- Glow filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Soft shadow -->
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2563eb" flood-opacity="0.15"/>
+    </filter>
+    <!-- Arrow gradient -->
+    <linearGradient id="arrowGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#94a3b8" stop-opacity="0.4"/>
+      <stop offset="40%" stop-color="#2563eb" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.9"/>
+    </linearGradient>
+    <!-- Document gradient -->
+    <linearGradient id="docGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#dbeafe"/>
+      <stop offset="100%" stop-color="#bfdbfe"/>
+    </linearGradient>
+    <!-- Chart gradient -->
+    <linearGradient id="chartGrad" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <!-- Calendar gradient -->
+    <linearGradient id="calGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a5b4fc"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <!-- File gradient -->
+    <linearGradient id="fileGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="280" height="240" fill="#f8fafc" rx="12"/>
+
+  <!-- ==================== -->
+  <!-- LEFT SIDE: Dull chat bubble (faded, crossed out) -->
+  <!-- ==================== -->
+
+  <g transform="translate(62, 100)">
+    <!-- Chat bubble -->
+    <rect x="-30" y="-24" width="60" height="40" rx="10" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1"/>
+    <!-- Bubble tail -->
+    <polygon points="-8,16 -16,26 2,16" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1" stroke-linejoin="round"/>
+    <!-- Dots inside bubble -->
+    <circle cx="-10" cy="-4" r="3" fill="#94a3b8" opacity="0.6"/>
+    <circle cx="0" cy="-4" r="3" fill="#94a3b8" opacity="0.5"/>
+    <circle cx="10" cy="-4" r="3" fill="#94a3b8" opacity="0.4"/>
+
+    <!-- Cross-out / strike -->
+    <line x1="-28" y1="-22" x2="28" y2="18" stroke="#ef4444" stroke-width="2.5" opacity="0.55" stroke-linecap="round"/>
+    <line x1="-28" y1="18" x2="28" y2="-22" stroke="#ef4444" stroke-width="2.5" opacity="0.55" stroke-linecap="round"/>
+  </g>
+
+  <!-- ==================== -->
+  <!-- CENTER: Transformation arrow -->
+  <!-- ==================== -->
+
+  <!-- Large sweeping arrow from left to right -->
+  <path d="M100,108 C120,108 125,80 140,80 C155,80 160,108 180,108"
+        stroke="url(#arrowGrad)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Arrowhead -->
+  <polygon points="178,102 188,108 178,114" fill="#2563eb" opacity="0.85"/>
+
+  <!-- Sparkle at transformation point -->
+  <g transform="translate(140, 76)" opacity="0.6">
+    <line x1="0" y1="-5" x2="0" y2="5" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-5" y1="0" x2="5" y2="0" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-3" y1="-3" x2="3" y2="3" stroke="#2563eb" stroke-width="1" stroke-linecap="round"/>
+    <line x1="-3" y1="3" x2="3" y2="-3" stroke="#2563eb" stroke-width="1" stroke-linecap="round"/>
+  </g>
+
+  <!-- ==================== -->
+  <!-- RIGHT SIDE: Tangible outputs -->
+  <!-- ==================== -->
+
+  <!-- Output 1: Document/Report (top-right) -->
+  <g transform="translate(198, 48)" filter="url(#cardShadow)">
+    <rect x="0" y="0" width="36" height="44" rx="4" fill="url(#docGrad)" stroke="#2563eb" stroke-width="0.8" stroke-opacity="0.3"/>
+    <!-- Doc lines -->
+    <line x1="6" y1="10" x2="30" y2="10" stroke="#2563eb" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="6" y1="17" x2="26" y2="17" stroke="#2563eb" stroke-width="1.5" opacity="0.3" stroke-linecap="round"/>
+    <line x1="6" y1="24" x2="28" y2="24" stroke="#2563eb" stroke-width="1.5" opacity="0.3" stroke-linecap="round"/>
+    <line x1="6" y1="31" x2="20" y2="31" stroke="#2563eb" stroke-width="1.5" opacity="0.25" stroke-linecap="round"/>
+    <!-- Corner fold -->
+    <path d="M224,48 L234,48 L234,58" fill="none" stroke="#2563eb" stroke-width="0.6" opacity="0.3"/>
+    <path d="M224,48 L234,58 L224,58 Z" fill="#93c5fd" opacity="0.3"/>
+  </g>
+
+  <!-- Output 2: Bar chart (middle-right) -->
+  <g transform="translate(208, 100)" filter="url(#cardShadow)">
+    <rect x="-16" y="-16" width="48" height="40" rx="5" fill="white" stroke="#2563eb" stroke-width="0.6" stroke-opacity="0.2"/>
+    <!-- Chart bars -->
+    <rect x="-8" y="4" width="7" height="16" rx="1.5" fill="url(#chartGrad)" opacity="0.7"/>
+    <rect x="2" y="-4" width="7" height="26" rx="1.5" fill="url(#chartGrad)" opacity="0.85"/>
+    <rect x="12" y="-10" width="7" height="32" rx="1.5" fill="url(#chartGrad)" opacity="1"/>
+    <!-- Trend line -->
+    <polyline points="-5,10 5,0 15,-8" stroke="#1d4ed8" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+  </g>
+
+  <!-- Output 3: Calendar event (bottom-right area) -->
+  <g transform="translate(196, 150)" filter="url(#cardShadow)">
+    <rect x="0" y="0" width="38" height="34" rx="5" fill="white" stroke="#818cf8" stroke-width="0.6" stroke-opacity="0.3"/>
+    <!-- Calendar header bar -->
+    <rect x="0" y="0" width="38" height="10" rx="5" fill="url(#calGrad)" opacity="0.7"/>
+    <rect x="0" y="5" width="38" height="5" fill="url(#calGrad)" opacity="0.7"/>
+    <!-- Calendar grid dots -->
+    <circle cx="10" cy="18" r="1.5" fill="#6366f1" opacity="0.4"/>
+    <circle cx="19" cy="18" r="1.5" fill="#6366f1" opacity="0.4"/>
+    <circle cx="28" cy="18" r="1.5" fill="#6366f1" opacity="0.4"/>
+    <circle cx="10" cy="26" r="1.5" fill="#6366f1" opacity="0.3"/>
+    <!-- Highlighted date -->
+    <circle cx="19" cy="26" r="3.5" fill="#2563eb" opacity="0.7"/>
+    <circle cx="28" cy="26" r="1.5" fill="#6366f1" opacity="0.3"/>
+  </g>
+
+  <!-- Output 4: File/download (far right, between outputs) -->
+  <g transform="translate(244, 110)" filter="url(#cardShadow)">
+    <rect x="-12" y="-14" width="24" height="28" rx="3" fill="url(#fileGrad)" opacity="0.8"/>
+    <!-- File icon lines -->
+    <line x1="-5" y1="-5" x2="5" y2="-5" stroke="white" stroke-width="1.2" opacity="0.7" stroke-linecap="round"/>
+    <line x1="-5" y1="0" x2="5" y2="0" stroke="white" stroke-width="1.2" opacity="0.6" stroke-linecap="round"/>
+    <line x1="-5" y1="5" x2="3" y2="5" stroke="white" stroke-width="1.2" opacity="0.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- ==================== -->
+  <!-- Flow lines from arrow to outputs -->
+  <!-- ==================== -->
+
+  <path d="M186,104 C192,90 194,72 200,68" stroke="#2563eb" stroke-width="1" fill="none" stroke-dasharray="3,3" opacity="0.3"/>
+  <path d="M186,108 C194,108 198,112 206,114" stroke="#2563eb" stroke-width="1" fill="none" stroke-dasharray="3,3" opacity="0.3"/>
+  <path d="M186,112 C192,125 194,148 200,155" stroke="#2563eb" stroke-width="1" fill="none" stroke-dasharray="3,3" opacity="0.3"/>
+
+  <!-- ==================== -->
+  <!-- Decorative elements -->
+  <!-- ==================== -->
+
+  <!-- Subtle dots -->
+  <circle cx="40" cy="40" r="1.5" fill="#94a3b8" opacity="0.12"/>
+  <circle cx="60" cy="190" r="1.5" fill="#94a3b8" opacity="0.1"/>
+  <circle cx="140" cy="200" r="1" fill="#2563eb" opacity="0.1"/>
+  <circle cx="250" cy="50" r="1.5" fill="#2563eb" opacity="0.12"/>
+  <circle cx="260" cy="190" r="1" fill="#6366f1" opacity="0.1"/>
+
+  <!-- Fading small dots around outputs to suggest motion/emission -->
+  <circle cx="242" cy="58" r="1" fill="#2563eb" opacity="0.2" filter="url(#glow)"/>
+  <circle cx="250" cy="145" r="1" fill="#6366f1" opacity="0.18" filter="url(#glow)"/>
+  <circle cx="240" cy="185" r="1" fill="#818cf8" opacity="0.15" filter="url(#glow)"/>
+</svg>

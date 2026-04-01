@@ -25,6 +25,7 @@ import { fetchSkills, fetchCategories, type Skill } from '../services/api'
 import { storage } from '../services/storage'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import SkillCard from '../components/SkillCard'
+import { SkillCardSkeleton } from '../components/Skeleton'
 
 export default function DiscoverScreen({ navigation }: any) {
   const { t, lang } = useI18n()
@@ -129,7 +130,13 @@ export default function DiscoverScreen({ navigation }: any) {
   )
 
   if (loading) {
-    return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
+    return (
+      <View style={s.container}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+          {[0, 1, 2, 3, 4].map(i => <SkillCardSkeleton key={i} />)}
+        </View>
+      </View>
+    )
   }
 
   return (

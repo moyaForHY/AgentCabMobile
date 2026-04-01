@@ -10,6 +10,7 @@ export type PinnedApi = {
   customName?: string
   presetValues?: Record<string, any>
   isShortcut?: boolean  // true = shows in Home quick actions, false = just bookmarked
+  usageCount?: number   // tracks how often this shortcut is used, for sorting
 }
 
 async function load(): Promise<PinnedApi[]> {
@@ -49,5 +50,10 @@ export function usePinnedApis() {
     await save(current.map(p => p.id === id ? { ...p, customName } : p))
   }, [])
 
-  return { pinned, pin, unpin, isPinned, rename }
+  const incrementUsage = useCallback(async (id: string) => {
+    const current = await load()
+    await save(current.map(p => p.id === id ? { ...p, usageCount: (p.usageCount || 0) + 1 } : p))
+  }, [])
+
+  return { pinned, pin, unpin, isPinned, rename, incrementUsage }
 }

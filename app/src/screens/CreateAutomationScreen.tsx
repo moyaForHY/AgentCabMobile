@@ -18,6 +18,7 @@ import { fetchSkills, fetchSkillById, type Skill } from '../services/api'
 import { useKeyboard } from '../hooks/useKeyboard'
 import DynamicForm from '../components/DynamicForm'
 import SkillCard from '../components/SkillCard'
+import { SkillCardSkeleton } from '../components/Skeleton'
 import type { PickedFile } from '../services/deviceCapabilities'
 import {
   saveRule,
@@ -167,7 +168,9 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
   }
 
   if (loadingSkills) {
-    return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
+    return <View style={[s.container, { padding: 16, paddingTop: 80 }]}>
+      {[0, 1, 2, 3].map(i => <SkillCardSkeleton key={i} />)}
+    </View>
   }
 
   return (

@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Linking,
   Image,
+  Platform,
+  Share,
 } from 'react-native'
 import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
@@ -21,6 +23,7 @@ import { taskManager } from '../services/taskManager'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
 import DynamicForm from '../components/DynamicForm'
 import ReviewCard from '../components/ReviewCard'
+import { SkillDetailSkeleton } from '../components/Skeleton'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
@@ -52,6 +55,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   const [reviewsTotal, setReviewsTotal] = useState(0)
   const { height: kbHeight } = useKeyboard()
   const scrollRef = React.useRef<ScrollView>(null)
+  const [showMoreActions, setShowMoreActions] = useState(false)
 
   useEffect(() => {
     if (kbHeight > 0) setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100)
@@ -267,7 +271,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
     } finally { setSubmitting(false); setUploadProgress(null) }
   }
 
-  if (loading) return <View style={st.center}><ActivityIndicator size="large" color={colors.primary} /></View>
+  if (loading) return <SkillDetailSkeleton />
   if (!skill) return null
 
   // Filter out device:* fields from manual form — they're auto-collected
@@ -302,14 +306,32 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               {isPinned(skillId) ? '★' : '☆'}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={st.shareBtn}
+            onPress={() => {
+              Share.share({
+                message: `${skill.name} - ${skill.description || ''}\nhttps://www.agentcab.ai/skills/${skill.id}`,
+                url: `https://www.agentcab.ai/skills/${skill.id}`,
+              })
+            }}
+            activeOpacity={0.6}>
+            <Icon name="share-2" size={18} color={colors.ink600} />
+          </TouchableOpacity>
         </View>
         <View style={st.metaRow}>
           {skill.category ? (
             <View style={st.chip}><Text style={st.chipText}>{skill.category.toUpperCase()}</Text></View>
           ) : null}
           <Text style={st.metaText}>{skill.call_count} {t.calls}</Text>
+          {skill.call_count > 5 && skill.success_count != null && (
+            <Text style={st.metaText}>✓ {Math.round((skill.success_count / skill.call_count) * 100)}%</Text>
+          )}
           <Text style={st.metaText}>{skill.rating > 0 ? `★ ${skill.rating.toFixed(1)}` : '☆ —'}</Text>
-          {example?.duration_ms != null && <Text style={st.metaText}>~{(example.duration_ms / 1000).toFixed(0)}s</Text>}
+          {skill.avg_response_time && (() => {
+            const sec = parseFloat(skill.avg_response_time.replace('~', '').replace('s', ''))
+            const label = sec < 60 ? `~${Math.round(sec)}s` : `~${Math.round(sec / 60)}min`
+            return <Text style={st.metaText}>{label}</Text>
+          })()}
           <Text style={st.priceInline}>{skill.price_credits}{skill.max_price_credits ? `–${skill.max_price_credits}` : ''} {t.credits}</Text>
         </View>
       </View>
@@ -458,26 +480,13 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {/* Call button */}
-            <TouchableOpacity
-              style={[st.callBtnWrap, submitting && { opacity: 0.6 }]}
-              onPress={handleSubmit} disabled={submitting} activeOpacity={0.85}>
-              <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.callBtn}>
-                {submitting
-                  ? uploadProgress
-                    ? <Text style={st.callBtnText}>Uploading {uploadProgress.current}/{uploadProgress.total}...</Text>
-                    : <><ActivityIndicator color="#fff" size="small" /><Text style={[st.callBtnText, { marginLeft: 8 }]}>Calling...</Text></>
-                  : <Text style={st.callBtnText}>{t.callApi}</Text>}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Quick Action Buttons */}
+            {/* Call + Quick Action Buttons */}
             {(() => {
               const requiredFields: string[] = (skill.input_schema as any)?.required || []
               const props = (skill.input_schema?.properties as any) || {}
               const missingManual = requiredFields.filter(key => {
                 const prop = props[key]
-                if (prop?.format?.startsWith('device:')) return false // auto-collected
+                if (prop?.format?.startsWith('device:')) return false
                 const itemFmt = prop?.items?.format || ''
                 const isFile = prop?.format === 'file_id' || itemFmt === 'file_id' || key === 'file_ids' || key === 'file_id' || key === 'files' || key === 'file'
                 if (isFile) return !pickedFiles[key]?.length
@@ -485,14 +494,40 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               })
               const allFilled = missingManual.length === 0
               return (
+                <>
+                  {/* Call Button */}
+                  <TouchableOpacity
+                    style={[st.callBtnWrap, (submitting || !allFilled) && { opacity: 0.5 }]}
+                    onPress={() => {
+                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
+                      handleSubmit()
+                    }}
+                    disabled={submitting} activeOpacity={0.85}>
+                    <LinearGradient colors={allFilled ? ['#2563eb', '#1e40af'] : ['#94a3b8', '#94a3b8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={st.callBtn}>
+                      {submitting
+                        ? uploadProgress
+                          ? <Text style={st.callBtnText}>Uploading {uploadProgress.current}/{uploadProgress.total}...</Text>
+                          : <><ActivityIndicator color="#fff" size="small" /><Text style={[st.callBtnText, { marginLeft: 8 }]}>Calling...</Text></>
+                        : <Text style={st.callBtnText}>{t.callApi} · {skill.price_credits}{skill.max_price_credits ? `–${skill.max_price_credits}` : ''} {t.credits}</Text>}
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Collapsible quick actions */}
+                  <TouchableOpacity
+                    style={{ alignItems: 'center', paddingVertical: 8 }}
+                    onPress={() => setShowMoreActions(!showMoreActions)}
+                    activeOpacity={0.6}>
+                    <Text style={{ fontSize: 12, color: colors.ink400 }}>
+                      {showMoreActions ? (lang === 'zh' ? '收起' : 'Less') : (lang === 'zh' ? '更多操作' : 'More actions')} {showMoreActions ? '▲' : '▼'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {showMoreActions && (
                 <View style={st.secondaryBtnRow}>
                   <TouchableOpacity
                     style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
                     onPress={() => {
-                      if (!allFilled) {
-                        showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first')
-                        return
-                      }
+                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
                       pin({ id: skillId, name: skill.name, presetValues: values, isShortcut: true })
                       showModal(
                         lang === 'zh' ? '快捷方式已创建' : 'Shortcut Created',
@@ -505,10 +540,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                   <TouchableOpacity
                     style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
                     onPress={() => {
-                      if (!allFilled) {
-                        showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first')
-                        return
-                      }
+                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
                       navigation.navigate('CreateAutomation', {
                         preSelectedSkill: skill,
                         preInputValues: values,
@@ -518,6 +550,8 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                     <Text style={[st.secondaryBtnText, !allFilled && st.secondaryBtnTextDisabled]}>{t.createAutomation}</Text>
                   </TouchableOpacity>
                 </View>
+                  )}
+                </>
               )
             })()}
           </>
@@ -574,6 +608,8 @@ export default function SkillDetailScreen({ route, navigation }: any) {
         )}
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Call button removed from sticky footer — now inside ScrollView */}
     </View>
   )
 }
@@ -657,6 +693,7 @@ const st = StyleSheet.create({
   pinBtnActive: { backgroundColor: '#fffbeb' },
   pinIcon: { fontSize: 18, color: '#94a3b8' },
   pinIconActive: { color: '#f59e0b' },
+  shareBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   chip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: 'rgba(37,99,235,0.2)' },
   chipText: { fontSize: 10, fontWeight: fontWeight.bold, color: '#2563eb', letterSpacing: 0.5 },
@@ -680,6 +717,16 @@ const st = StyleSheet.create({
   tabActive: { borderBottomColor: '#2563eb' },
   tabText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink400 },
   tabTextActive: { color: '#2563eb' },
+
+  // Sticky footer
+  stickyFooter: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(37, 99, 235, 0.08)',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
 
   // Scroll content
   scroll: { flex: 1 },

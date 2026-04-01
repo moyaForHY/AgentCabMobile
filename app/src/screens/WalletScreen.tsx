@@ -16,6 +16,7 @@ import { showModal } from '../components/AppModal'
 import { fetchWallet, fetchTransactions, createZPayOrder, checkZPayOrder } from '../services/api'
 import { storage } from '../services/storage'
 import Icon from 'react-native-vector-icons/Feather'
+import { SkeletonBox } from '../components/Skeleton'
 
 const RECHARGE_AMOUNTS = [10, 30, 50, 100]
 
@@ -127,8 +128,18 @@ export default function WalletScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
+      <View style={[styles.container, { padding: 16 }]}>
+        <SkeletonBox width={'100%' as any} height={100} borderRadius={16} />
+        <View style={{ height: 12 }} />
+        <SkeletonBox width={'100%' as any} height={48} borderRadius={12} />
+        <View style={{ height: 20 }} />
+        <SkeletonBox width={120} height={16} borderRadius={4} />
+        <View style={{ height: 12 }} />
+        {[0, 1, 2].map(i => (
+          <View key={i} style={{ marginBottom: 10 }}>
+            <SkeletonBox width={'100%' as any} height={56} borderRadius={12} />
+          </View>
+        ))}
       </View>
     )
   }

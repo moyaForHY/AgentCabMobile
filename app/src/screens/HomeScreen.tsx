@@ -27,6 +27,8 @@ import { trackTask } from '../services/taskPoller'
 import { taskManager } from '../services/taskManager'
 import { showModal } from '../components/AppModal'
 import SkillCard from '../components/SkillCard'
+import { SkillCardSkeleton } from '../components/Skeleton'
+import Icon from 'react-native-vector-icons/Feather'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -66,7 +68,7 @@ function PulseDot() {
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth()
   const { t, lang } = useI18n()
-  const { pinned, rename, unpin } = usePinnedApis()
+  const { pinned, rename, unpin, incrementUsage } = usePinnedApis()
   const [automations, setAutomations] = useState<AutomationRule[]>([])
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renamingApi, setRenamingApi] = useState<any>(null)
@@ -76,6 +78,7 @@ export default function HomeScreen({ navigation }: any) {
   const handleQuickRun = async (api: any) => {
     if (runningShortcut) return
     setRunningShortcut(api.id)
+    incrementUsage(api.id)
     try {
       const skill = await fetchSkillById(api.id)
       const formats = getDeviceFormats(skill.input_schema || {})
@@ -206,7 +209,7 @@ export default function HomeScreen({ navigation }: any) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷操作' : 'Quick Actions'}</Text>
             <View style={styles.pinnedGrid}>
-              {pinned.filter(p => p.isShortcut).map((api, i) => {
+              {[...pinned.filter(p => p.isShortcut)].sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).map((api, i) => {
                 const colors = [
                   ['#3b82f6', '#2563eb'], ['#f97316', '#ea580c'], ['#8b5cf6', '#7c3aed'],
                   ['#10b981', '#059669'], ['#ec4899', '#db2777'], ['#06b6d4', '#0891b2'],
@@ -274,6 +277,32 @@ export default function HomeScreen({ navigation }: any) {
           )}
         </View>
 
+        {/* Getting Started — shown when no recent calls */}
+        {recentCalls.length === 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{lang === 'zh' ? '快速开始' : 'Getting Started'}</Text>
+            <View style={styles.gettingStartedCard}>
+              <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
+                <View style={styles.gsIconWrap}><Icon name="grid" size={18} color={colors.primary} /></View>
+                <Text style={styles.gsText}>{lang === 'zh' ? '浏览分身' : 'Browse Clones'}</Text>
+                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+              </TouchableOpacity>
+              <View style={styles.gsDivider} />
+              <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Wallet')}>
+                <View style={styles.gsIconWrap}><Icon name="credit-card" size={18} color={colors.primary} /></View>
+                <Text style={styles.gsText}>{lang === 'zh' ? '充值积分' : 'Top up credits'}</Text>
+                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+              </TouchableOpacity>
+              <View style={styles.gsDivider} />
+              <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'ProfileTab' })}>
+                <View style={styles.gsIconWrap}><Icon name="user" size={18} color={colors.primary} /></View>
+                <Text style={styles.gsText}>{lang === 'zh' ? '设置个人资料' : 'Set up your profile'}</Text>
+                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Recent Calls */}
         {recentCalls.length > 0 && (
           <View style={styles.section}>
@@ -335,24 +364,26 @@ export default function HomeScreen({ navigation }: any) {
         )}
 
         {/* Popular Clones */}
-        {recentSkills.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t.popularApis}</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
-                <Text style={styles.seeAll}>{t.browse}</Text>
-              </TouchableOpacity>
-            </View>
-            {recentSkills.map((skill, i) => (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t.popularApis}</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
+              <Text style={styles.seeAll}>{t.browse}</Text>
+            </TouchableOpacity>
+          </View>
+          {recentSkills.length > 0 ? (
+            recentSkills.map((skill, i) => (
               <SkillCard
                 key={skill.id}
                 skill={skill}
                 index={i}
                 onPress={() => navigation.navigate('SkillDetail', { skillId: skill.id })}
               />
-            ))}
-          </View>
-        )}
+            ))
+          ) : (
+            [0, 1, 2].map(i => <SkillCardSkeleton key={i} />)
+          )}
+        </View>
 
         <View style={{ height: spacing.xl }} />
       </ScrollView>
@@ -716,5 +747,40 @@ const styles = StyleSheet.create({
     color: colors.ink400,
     textAlign: 'center',
     paddingVertical: 12,
+  },
+
+  // Getting Started
+  gettingStartedCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.08)',
+    overflow: 'hidden',
+  },
+  gsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  gsIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  gsText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: fontWeight.semibold,
+    color: colors.ink950,
+  },
+  gsDivider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginLeft: 62,
   },
 })

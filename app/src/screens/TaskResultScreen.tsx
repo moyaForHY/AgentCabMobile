@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import {
   View,
   Text,
@@ -10,20 +10,38 @@ import {
 } from 'react-native'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchCall } from '../services/api'
+import { isChinese } from '../utils/i18n'
+import { fetchCall, fetchSkillById } from '../services/api'
 import { storage } from '../services/storage'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
 import { executeActions, type Action } from '../services/actionExecutor'
 import { batchDeletePhotos } from '../services/photoScanner'
 import { showModal } from '../components/AppModal'
 import DownloadButton from '../components/DownloadButton'
+import { SkeletonBox } from '../components/Skeleton'
 import ReviewInput from '../components/ReviewInput'
+
+function formatElapsed(sec: number): string {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return m > 0 ? `${m}m${s.toString().padStart(2, '0')}s` : `${s}s`
+}
+
+function formatEstimate(avg: string): string {
+  const sec = parseFloat(avg.replace('~', '').replace('s', ''))
+  return sec < 60 ? `${Math.round(sec)}s` : `${Math.round(sec / 60)}min`
+}
 
 export default function TaskResultScreen({ route }: any) {
   const { t } = useI18n()
   const { taskId } = route.params
   const [call, setCall] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
+  const [elapsed, setElapsed] = useState(0)
+  const [estimatedTime, setEstimatedTime] = useState<string | null>(null)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     const cacheKey = `task_result_${taskId}`
@@ -48,11 +66,60 @@ export default function TaskResultScreen({ route }: any) {
     })()
   }, [taskId])
 
+  const isPending = call?.status === 'pending' || call?.status === 'processing' || call?.status === 'running'
+
+  // Poll for updates while pending/processing
+  useEffect(() => {
+    if (!isPending) {
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
+      return
+    }
+    pollingRef.current = setInterval(async () => {
+      try {
+        const data = await fetchCall(taskId)
+        setCall(data)
+        const cacheKey = `task_result_${taskId}`
+        storage.setStringAsync(cacheKey, JSON.stringify(data)).catch(() => {})
+      } catch {}
+    }, 3000)
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
+  }, [isPending, taskId])
+
+  // Elapsed time counter while pending/processing
+  useEffect(() => {
+    if (!isPending || !call?.started_at) {
+      if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null }
+      return
+    }
+    const update = () => setElapsed(Math.floor((Date.now() - new Date(call.started_at).getTime()) / 1000))
+    update()
+    elapsedRef.current = setInterval(update, 1000)
+    return () => { if (elapsedRef.current) clearInterval(elapsedRef.current) }
+  }, [isPending, call?.started_at])
+
+  // Fetch estimated time from skill
+  useEffect(() => {
+    if (!call?.skill_id || estimatedTime) return
+    fetchSkillById(call.skill_id).then(skill => {
+      if (skill.avg_response_time) setEstimatedTime(skill.avg_response_time)
+    }).catch(() => {})
+  }, [call?.skill_id])
+
   // Backend decides if actions can be executed
   const actionsAllowed = call?.actions_allowed === true
 
   if (loading) {
-    return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
+    return (
+      <View style={[s.container, { padding: 16 }]}>
+        <SkeletonBox width={80} height={28} borderRadius={8} />
+        <View style={{ height: 12 }} />
+        <SkeletonBox width={'100%' as any} height={80} borderRadius={14} />
+        <View style={{ height: 12 }} />
+        <SkeletonBox width={'100%' as any} height={120} borderRadius={14} />
+        <View style={{ height: 12 }} />
+        <SkeletonBox width={'100%' as any} height={200} borderRadius={14} />
+      </View>
+    )
   }
 
   if (!call) {
@@ -76,6 +143,22 @@ export default function TaskResultScreen({ route }: any) {
 
   return (
     <ScrollView style={s.container} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+
+      {/* Processing indicator */}
+      {isPending && (
+        <View style={s.processingCard}>
+          <View style={s.processingHeader}>
+            <ActivityIndicator size="small" color="#2563eb" style={{ marginRight: 8 }} />
+            <Text style={s.processingTitle}>
+              {isChinese() ? '处理中' : 'Processing'} · {formatElapsed(elapsed)}
+              {estimatedTime ? ` (${isChinese() ? '预计' : 'est.'} ~${formatEstimate(estimatedTime)})` : ''}
+            </Text>
+          </View>
+          <Text style={s.processingHint}>
+            {isChinese() ? '如果长时间无响应，请尝试刷新' : 'Try refreshing if no response for a long time'}
+          </Text>
+        </View>
+      )}
 
       {/* Status badge */}
       <View style={[s.statusBadge, { backgroundColor: statusBg }]}>
@@ -524,6 +607,31 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   content: { padding: 16, paddingTop: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  // Processing indicator
+  processingCard: {
+    backgroundColor: '#eff6ff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    padding: 14,
+    marginBottom: 12,
+  },
+  processingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  processingTitle: {
+    fontSize: 14,
+    fontWeight: fontWeight.semibold,
+    color: '#2563eb',
+  },
+  processingHint: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 26,
+  },
 
   // Status
   statusBadge: {

@@ -3,10 +3,13 @@
  * Works even when MIUI freezes JS setInterval in background.
  */
 import { NativeModules, DeviceEventEmitter } from 'react-native'
+import { AppState } from 'react-native'
 import { fetchCalls, fetchCall } from './api'
 import { storage } from './storage'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from './events'
 import { executeActions, type Action } from './actionExecutor'
+import { showNotification } from './notifications'
+import { isChinese } from '../utils/i18n'
 
 const AlarmSchedulerModule = NativeModules.AlarmSchedulerModule
 
@@ -46,11 +49,26 @@ async function checkOnce() {
       pendingIds = pendingIds.filter(id => !completedIds.has(id))
 
       for (const c of completed) {
+        const skillName = c.skill_name ?? c.skill?.name ?? ''
         events.emit(EVENT_CALL_COMPLETED, {
           call_id: c.id,
-          skill_name: c.skill_name ?? c.skill?.name,
+          skill_name: skillName,
           status: c.status,
         })
+
+        // Push notification (especially useful when app is in background)
+        const zh = isChinese()
+        if (c.status === 'success' || c.status === 'completed') {
+          showNotification(
+            skillName || (zh ? '任务完成' : 'Task Complete'),
+            zh ? `${skillName} 已完成，点击查看结果` : `${skillName} finished. Tap to view results.`,
+          ).catch(() => {})
+        } else if (c.status === 'failed') {
+          showNotification(
+            zh ? '任务失败' : 'Task Failed',
+            zh ? `${skillName} 执行失败：${c.error_message || '未知错误'}` : `${skillName} failed: ${c.error_message || 'Unknown error'}`,
+          ).catch(() => {})
+        }
 
         // Auto-execute safe actions
         const output = c.output_data || c.output

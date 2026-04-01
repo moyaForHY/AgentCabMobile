@@ -158,6 +158,7 @@ export type Skill = {
   provider_youtube?: string
   provider_bilibili?: string
   provider_skill_count?: number
+  avg_response_time?: string
   name: string
   description?: string
   input_schema: Record<string, unknown>
