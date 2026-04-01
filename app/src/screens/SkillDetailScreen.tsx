@@ -7,12 +7,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Linking,
+  Image,
 } from 'react-native'
 import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
+import Icon from 'react-native-vector-icons/Feather'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, fetchReviews, type Skill, type Review } from '../services/api'
+import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, fetchReviews, SITE_URL, type Skill, type Review } from '../services/api'
 import DownloadButton from '../components/DownloadButton'
 import { storage } from '../services/storage'
 import { taskManager } from '../services/taskManager'
@@ -335,6 +337,56 @@ export default function SkillDetailScreen({ route, navigation }: any) {
             {/* Description */}
             {skill.description ? <Text style={st.desc}>{skill.description}</Text> : null}
 
+            {/* Author Card */}
+            {skill.provider_name && (
+              <TouchableOpacity
+                style={st.authorCard}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('Provider', {
+                  providerId: skill.agent_id,
+                  providerName: skill.provider_name,
+                  providerAvatar: skill.provider_avatar_url,
+                  providerBio: skill.provider_bio,
+                  providerWebsite: skill.provider_website,
+                  providerTwitter: skill.provider_twitter,
+                  providerGithub: skill.provider_github,
+                  providerLinkedin: skill.provider_linkedin,
+                  providerWechat: skill.provider_wechat_official,
+                  providerYoutube: skill.provider_youtube,
+                  providerBilibili: skill.provider_bilibili,
+                })}
+              >
+                <View style={st.authorRow}>
+                  {skill.provider_avatar_url && skill.provider_avatar_url.length > 0 ? (
+                    <Image source={{ uri: skill.provider_avatar_url.startsWith('http') ? skill.provider_avatar_url : `${SITE_URL}${skill.provider_avatar_url}` }} style={st.authorAvatar} />
+                  ) : (
+                    <View style={st.authorAvatarFallback}>
+                      <Text style={st.authorAvatarLetter}>{skill.provider_name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <View style={st.authorInfo}>
+                    <Text style={st.authorName}>{skill.provider_name}</Text>
+                    {skill.provider_skill_count ? (
+                      <Text style={st.authorMeta}>{skill.provider_skill_count} {lang === 'zh' ? '个分身' : 'Clones'}</Text>
+                    ) : null}
+                  </View>
+                  <Icon name="chevron-right" size={18} color={colors.ink400} />
+                </View>
+                {skill.provider_bio ? <Text style={st.authorBio} numberOfLines={2}>{skill.provider_bio}</Text> : null}
+                {(skill.provider_website || skill.provider_twitter || skill.provider_github || skill.provider_linkedin || skill.provider_wechat_official || skill.provider_youtube || skill.provider_bilibili) && (
+                  <View style={st.socialRow}>
+                    {skill.provider_website ? <View style={st.socialBadge}><Icon name="globe" size={12} color={colors.ink600} /><Text style={st.socialText}>Website</Text></View> : null}
+                    {skill.provider_twitter ? <View style={st.socialBadge}><Text style={{ fontSize: 12, fontWeight: fontWeight.bold, color: colors.ink600 }}>𝕏</Text><Text style={st.socialText}>{skill.provider_twitter.startsWith('@') ? skill.provider_twitter : `@${skill.provider_twitter}`}</Text></View> : null}
+                    {skill.provider_github ? <View style={st.socialBadge}><Icon name="github" size={12} color={colors.ink600} /><Text style={st.socialText}>GitHub</Text></View> : null}
+                    {skill.provider_linkedin ? <View style={st.socialBadge}><Icon name="linkedin" size={12} color={colors.ink600} /><Text style={st.socialText}>LinkedIn</Text></View> : null}
+                    {skill.provider_wechat_official ? <View style={st.socialBadge}><Icon name="message-circle" size={12} color={colors.ink600} /><Text style={st.socialText}>{skill.provider_wechat_official}</Text></View> : null}
+                    {skill.provider_youtube ? <View style={st.socialBadge}><Icon name="youtube" size={12} color={colors.ink600} /><Text style={st.socialText}>YouTube</Text></View> : null}
+                    {skill.provider_bilibili ? <View style={st.socialBadge}><Icon name="tv" size={12} color={colors.ink600} /><Text style={st.socialText}>B站</Text></View> : null}
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
             {/* Price + Balance */}
             <View style={st.priceCard}>
               <View style={st.priceCol}>
@@ -635,6 +687,43 @@ const st = StyleSheet.create({
 
   // Use tab
   desc: { fontSize: 14, color: colors.ink600, lineHeight: 21, marginBottom: 14 },
+
+  // Author card
+  authorCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(37,99,235,0.08)',
+    padding: 14,
+    marginBottom: 14,
+  },
+  authorRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  authorAvatar: { width: 44, height: 44, borderRadius: 22 },
+  authorAvatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  authorAvatarLetter: { fontSize: 18, fontWeight: fontWeight.bold, color: colors.primary },
+  authorInfo: { flex: 1 },
+  authorName: { fontSize: 15, fontWeight: fontWeight.bold, color: colors.ink950 },
+  authorMeta: { fontSize: 11, color: colors.ink500, marginTop: 2 },
+  authorBio: { fontSize: 12, color: colors.ink600, lineHeight: 18, marginTop: 10 },
+  socialRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  socialBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.sand100,
+  },
+  socialText: { fontSize: 11, color: colors.ink600, fontWeight: fontWeight.medium },
+
   priceCard: {
     flexDirection: 'row',
     backgroundColor: '#fff',

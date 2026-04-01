@@ -15,11 +15,12 @@ import { useI18n } from '../i18n'
 import { showModal } from '../components/AppModal'
 import { fetchWallet, fetchTransactions, createZPayOrder, checkZPayOrder } from '../services/api'
 import { storage } from '../services/storage'
+import Icon from 'react-native-vector-icons/Feather'
 
 const RECHARGE_AMOUNTS = [10, 30, 50, 100]
 
 export default function WalletScreen() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [wallet, setWallet] = useState<any>(null)
   const [transactions, setTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -177,7 +178,11 @@ export default function WalletScreen() {
 
       <Text style={styles.sectionTitle}>{t.recentTransactions}</Text>
       {transactions.length === 0 ? (
-        <Text style={styles.emptyText}>{t.noTransactions}</Text>
+        <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+          <Icon name="credit-card" size={40} color={colors.ink300} style={{ marginBottom: 12 }} />
+          <Text style={styles.emptyText}>{t.noTransactions}</Text>
+          <Text style={{ fontSize: 13, color: colors.ink400, marginTop: 4 }}>{lang === 'zh' ? '使用分身后交易记录会出现在这里' : 'Transactions will appear here after using clones'}</Text>
+        </View>
       ) : (
         transactions.map(tx => (
           <View key={tx.id} style={styles.txRow}>

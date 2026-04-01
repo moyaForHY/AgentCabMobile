@@ -18,14 +18,16 @@ import {
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true)
 }
+import Icon from 'react-native-vector-icons/Feather'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchSkills, type Skill } from '../services/api'
+import { fetchSkills, fetchCategories, type Skill } from '../services/api'
 import { storage } from '../services/storage'
 import { usePinnedApis } from '../hooks/usePinnedApis'
+import SkillCard from '../components/SkillCard'
 
 export default function DiscoverScreen({ navigation }: any) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [skills, setSkills] = useState<Skill[]>([])
   const [statuses, setStatuses] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
@@ -107,52 +109,24 @@ export default function DiscoverScreen({ navigation }: any) {
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
   }, [search, activeCategory])
 
+  const [allCategories, setAllCategories] = useState<string[]>([])
+
+  useEffect(() => {
+    fetchCategories().then(cats => setAllCategories(cats)).catch(() => {})
+  }, [])
+
   const categories = useMemo(() => {
-    const cats = new Set<string>()
-    skills.forEach(s => { if (s.category) cats.add(s.category) })
-    return ['all', ...Array.from(cats)]
+    return ['all', ...allCategories]
   }, [skills])
 
   // Apply bookmark filter on top of backend results
   const filtered = showBookmarked ? skills.filter(s => isPinned(s.id)) : skills
 
-  const renderItem = ({ item }: { item: Skill }) => {
-    const st = statuses[item.id]
-    return (
-      <TouchableOpacity
-        style={s.card}
-        onPress={() => navigation.navigate('SkillDetail', { skillId: item.id })}
-        activeOpacity={0.85}>
-
-        {/* Name + status */}
-        <View style={s.titleRow}>
-          <Text style={s.apiName} numberOfLines={1}>{item.name}</Text>
-          {st && (
-            <View style={[s.statusDot, {
-              backgroundColor: st.status === 'available' ? '#10b981' : st.status === 'busy' ? '#ef4444' : colors.primary,
-            }]} />
-          )}
-        </View>
-
-        {/* Description */}
-        {item.description ? (
-          <Text style={s.apiDesc} numberOfLines={2}>{item.description}</Text>
-        ) : null}
-
-        {/* Footer */}
-        <View style={s.footer}>
-          <View style={s.footerStats}>
-            {item.category ? <Text style={s.tag}>{item.category}</Text> : null}
-            <Text style={s.stat}>{item.call_count} {t.calls}</Text>
-            <Text style={s.stat}>{item.rating > 0 ? `★ ${item.rating.toFixed(1)}` : '☆ —'}</Text>
-          </View>
-          <View style={s.pricePill}>
-            <Text style={s.priceText}>{item.price_credits} {t.credits}</Text>
-          </View>
-        </View>
-      </TouchableOpacity>
-    )
-  }
+  const renderItem = ({ item, index }: { item: Skill; index: number }) => (
+    <View style={{ paddingHorizontal: 16 }}>
+      <SkillCard skill={item} index={index} onPress={() => navigation.navigate('SkillDetail', { skillId: item.id })} />
+    </View>
+  )
 
   if (loading) {
     return <View style={s.center}><ActivityIndicator size="large" color={colors.primary} /></View>
@@ -223,7 +197,11 @@ export default function DiscoverScreen({ navigation }: any) {
         onEndReachedThreshold={0.3}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} /> : null}
         ListEmptyComponent={
-          <View style={s.center}><Text style={s.emptyText}>{t.noApisFound}</Text></View>
+          <View style={s.center}>
+            <Icon name="search" size={40} color={colors.ink300} style={{ marginBottom: 12 }} />
+            <Text style={s.emptyText}>{t.noApisFound}</Text>
+            <Text style={{ fontSize: 13, color: colors.ink400, marginTop: 4 }}>{lang === 'zh' ? '试试其他关键词或清除筛选' : 'Try different keywords or clear filters'}</Text>
+          </View>
         }
       />
     </View>

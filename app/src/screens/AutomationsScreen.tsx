@@ -21,6 +21,7 @@ import {
   type AutomationRule,
 } from '../services/automationService'
 import { events } from '../services/events'
+import Icon from 'react-native-vector-icons/Feather'
 
 const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
 
@@ -76,11 +77,7 @@ export default function AutomationsScreen({ navigation }: any) {
       : null
 
     return (
-      <TouchableOpacity
-        style={s.ruleCard}
-        activeOpacity={0.7}
-        onPress={() => navigation.navigate('CreateAutomation', { editRule: item })}
-        onLongPress={() => handleDelete(item)}>
+      <View style={s.ruleCard}>
         <View style={s.ruleTop}>
           <View style={s.ruleInfo}>
             <Text style={s.ruleName} numberOfLines={1}>{item.skillName}</Text>
@@ -96,7 +93,23 @@ export default function AutomationsScreen({ navigation }: any) {
             thumbColor={item.enabled ? colors.primary : '#f1f5f9'}
           />
         </View>
-      </TouchableOpacity>
+        <View style={s.ruleActions}>
+          <TouchableOpacity
+            style={s.ruleActionBtn}
+            onPress={() => navigation.navigate('CreateAutomation', { editRule: item })}
+            activeOpacity={0.7}>
+            <Icon name="edit-2" size={14} color={colors.primary} />
+            <Text style={s.ruleActionText}>{lang === 'zh' ? '编辑' : 'Edit'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.ruleActionBtn}
+            onPress={() => handleDelete(item)}
+            activeOpacity={0.7}>
+            <Icon name="trash-2" size={14} color="#dc2626" />
+            <Text style={[s.ruleActionText, { color: '#dc2626' }]}>{lang === 'zh' ? '删除' : 'Delete'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     )
   }
 
@@ -125,7 +138,7 @@ export default function AutomationsScreen({ navigation }: any) {
             style={s.emptyBtn}
             onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}
             activeOpacity={0.7}>
-            <Text style={s.emptyBtnText}>{lang === 'zh' ? '浏览 API' : 'Browse APIs'}</Text>
+            <Text style={s.emptyBtnText}>{lang === 'zh' ? '浏览分身' : 'Browse Clones'}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -213,6 +226,24 @@ const s = StyleSheet.create({
     fontSize: 11,
     color: colors.ink500,
     marginTop: 2,
+  },
+  ruleActions: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(37, 99, 235, 0.06)',
+  },
+  ruleActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ruleActionText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: fontWeight.medium,
   },
 
   // Empty

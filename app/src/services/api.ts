@@ -4,7 +4,8 @@ import { getAccessToken, setAccessToken } from './storage'
 import { events } from './events'
 import { showModal } from '../components/AppModal'
 
-const API_BASE_URL = 'https://www.agentcab.ai/v1'
+export const SITE_URL = 'https://www.agentcab.ai'
+const API_BASE_URL = `${SITE_URL}/v1`
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -147,6 +148,16 @@ export type Skill = {
   id: string
   agent_id: string
   provider_name?: string
+  provider_avatar_url?: string
+  provider_bio?: string
+  provider_website?: string
+  provider_twitter?: string
+  provider_github?: string
+  provider_linkedin?: string
+  provider_wechat_official?: string
+  provider_youtube?: string
+  provider_bilibili?: string
+  provider_skill_count?: number
   name: string
   description?: string
   input_schema: Record<string, unknown>
@@ -173,6 +184,15 @@ export type UserProfile = {
   role: 'caller' | 'provider' | 'admin'
   status: 'active' | 'suspended'
   email_verified: boolean
+  avatar_url?: string
+  bio?: string
+  website?: string
+  twitter?: string
+  github?: string
+  linkedin?: string
+  wechat_official?: string
+  youtube?: string
+  bilibili?: string
   total_credits_spent: number
   total_credits_earned: number
   created_at: string
@@ -212,6 +232,35 @@ export async function fetchMe() {
   return data.data as UserProfile
 }
 
+export async function updateProfile(payload: {
+  name?: string
+  avatar_url?: string
+  bio?: string
+  website?: string
+  twitter?: string
+  github?: string
+  linkedin?: string
+  wechat_official?: string
+  youtube?: string
+  bilibili?: string
+}) {
+  const { data } = await api.put('/auth/profile', payload)
+  return data.data as UserProfile
+}
+
+export async function uploadAvatar(uri: string) {
+  const formData = new FormData()
+  formData.append('file', {
+    uri,
+    name: 'avatar.jpg',
+    type: 'image/jpeg',
+  } as any)
+  const { data } = await api.post('/auth/avatar', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data.data as { avatar_url: string }
+}
+
 export async function resetApiKey() {
   const { data } = await api.post('/auth/reset-api-key')
   return data.data as { api_key: string }
@@ -233,6 +282,11 @@ export async function fetchSkills(page = 1, pageSize = 20, category?: string, q?
 }
 
 export const fetchSkillsWithStatus = fetchSkills
+
+export async function fetchCategories(): Promise<string[]> {
+  const { data } = await api.get('/skills/categories')
+  return data.data as string[]
+}
 
 export async function fetchMySkills(): Promise<Skill[]> {
   const { data } = await api.get('/skills/my')

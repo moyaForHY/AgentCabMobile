@@ -26,6 +26,7 @@ import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollecto
 import { trackTask } from '../services/taskPoller'
 import { taskManager } from '../services/taskManager'
 import { showModal } from '../components/AppModal'
+import SkillCard from '../components/SkillCard'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -200,7 +201,7 @@ export default function HomeScreen({ navigation }: any) {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Pinned APIs — Shortcuts style */}
+        {/* Pinned Clones — Shortcuts style */}
         {pinned.filter(p => p.isShortcut).length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷操作' : 'Quick Actions'}</Text>
@@ -333,7 +334,7 @@ export default function HomeScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Popular APIs */}
+        {/* Popular Clones */}
         {recentSkills.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -343,24 +344,12 @@ export default function HomeScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
             {recentSkills.map((skill, i) => (
-              <TouchableOpacity
+              <SkillCard
                 key={skill.id}
-                style={[styles.apiRow, i < recentSkills.length - 1 && styles.apiRowBorder]}
+                skill={skill}
+                index={i}
                 onPress={() => navigation.navigate('SkillDetail', { skillId: skill.id })}
-                activeOpacity={0.7}>
-                <View style={styles.apiRowLeft}>
-                  <Text style={styles.apiRowName} numberOfLines={1}>{skill.name}</Text>
-                  <Text style={styles.apiRowDesc} numberOfLines={1}>
-                    {[skill.category, `${skill.call_count || 0} ${t.calls}`, skill.rating > 0 ? `★${skill.rating.toFixed(1)}` : '☆ —'].join(' · ')}
-                  </Text>
-                </View>
-                <View style={styles.apiRowRight}>
-                  <View style={styles.apiPricePill}>
-                    <Text style={styles.apiPriceText}>{skill.price_credits}c</Text>
-                  </View>
-                  <Text style={styles.apiRowArrow}>›</Text>
-                </View>
-              </TouchableOpacity>
+              />
             ))}
           </View>
         )}
@@ -656,7 +645,7 @@ const styles = StyleSheet.create({
     borderColor: '#bfdbfe',
   },
 
-  // API rows
+  // Clone rows
   apiRow: {
     flexDirection: 'row',
     alignItems: 'center',

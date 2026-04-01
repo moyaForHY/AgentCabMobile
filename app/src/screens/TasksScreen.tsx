@@ -16,6 +16,7 @@ import { useI18n } from '../i18n'
 import { fetchCalls, getCached } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { events, EVENT_CALL_COMPLETED } from '../services/events'
+import Icon from 'react-native-vector-icons/Feather'
 
 // ─── Status Pill ─────────────────────────────────────────────
 function StatusPill({ status }: { status: string }) {
@@ -255,7 +256,7 @@ export default function TasksScreen({ navigation }: any) {
         ListEmptyComponent={
           <View style={s.empty}>
             <View style={s.emptyIcon}>
-              <Text style={{ fontSize: 32 }}>📋</Text>
+              <Icon name="inbox" size={36} color={colors.ink300} />
             </View>
             <Text style={s.emptyTitle}>{t.noCallsYet}</Text>
             <Text style={s.emptyHint}>{t.callAnApi}</Text>

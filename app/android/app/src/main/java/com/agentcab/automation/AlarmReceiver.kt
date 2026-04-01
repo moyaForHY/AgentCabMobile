@@ -47,15 +47,28 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w(TAG, "Failed to send JS event: ${e.message}")
         }
 
-        // Fallback: launch app with ruleId (will auto-execute via IntentModule)
-        Log.d(TAG, "React context not available, launching app for rule: $ruleId")
+        // Fallback: start headless JS service to execute without opening UI
+        Log.d(TAG, "React context not available, starting headless service for rule: $ruleId")
         try {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                putExtra("automationRuleId", ruleId)
+            val serviceIntent = Intent(context, AutomationHeadlessService::class.java).apply {
+                putExtra("ruleId", ruleId)
             }
-            if (launchIntent != null) context.startActivity(launchIntent)
-        } catch (_: Exception) {}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Headless service failed, launching app: ${e.message}")
+            // Last resort: launch app UI
+            try {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra("automationRuleId", ruleId)
+                }
+                if (launchIntent != null) context.startActivity(launchIntent)
+            } catch (_: Exception) {}
+        }
     }
 
     private fun rescheduleNext(context: Context, ruleId: String) {

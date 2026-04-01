@@ -82,8 +82,8 @@ android {
         applicationId "com.agentcab"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "1.9.1"
+        versionCode 10
+        versionName "2.0.0"
     }
     signingConfigs {
         debug {
@@ -110,6 +110,8 @@ android {
         }
     }
 }
+
+apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

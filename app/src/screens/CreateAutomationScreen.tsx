@@ -14,9 +14,10 @@ import LinearGradient from 'react-native-linear-gradient'
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
 import { useI18n } from '../i18n'
-import { fetchSkills, type Skill } from '../services/api'
+import { fetchSkills, fetchSkillById, type Skill } from '../services/api'
 import { useKeyboard } from '../hooks/useKeyboard'
 import DynamicForm from '../components/DynamicForm'
+import SkillCard from '../components/SkillCard'
 import type { PickedFile } from '../services/deviceCapabilities'
 import {
   saveRule,
@@ -94,19 +95,18 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
   }, [editRule])
 
   useEffect(() => {
-    if (preSelectedSkill && !editRule) { setLoadingSkills(false); return }
-    setLoadingSkills(true)
-    fetchSkills(1, 50)
-      .then(res => {
-        const available = res.items.filter(s => s.status === 'published' || s.status === 'active')
-        setSkills(available)
-        if (editRule) {
-          const match = available.find(s => s.id === editRule.skillId)
-          if (match) setSelectedSkill(match)
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingSkills(false))
+    if (preSelectedSkill) { setLoadingSkills(false); return }
+    if (editRule) {
+      // Edit mode: just fetch this one skill
+      setLoadingSkills(true)
+      fetchSkillById(editRule.skillId)
+        .then(skill => setSelectedSkill(skill))
+        .catch(() => {})
+        .finally(() => setLoadingSkills(false))
+      return
+    }
+    // New mode without preSelectedSkill — shouldn't happen, go back
+    setLoadingSkills(false)
   }, [])
 
   const handleFilePicked = useCallback((fieldKey: string, files: PickedFile[]) => {
@@ -194,21 +194,12 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
             <Text style={s.stepTitle}>{t.selectSkill}</Text>
             <Text style={s.stepHint}>{lang === 'zh' ? '选择一个 AI 技能进行自动化' : 'Choose an AI skill to automate'}</Text>
             {skills.map((skill, i) => (
-              <TouchableOpacity
+              <SkillCard
                 key={skill.id}
-                style={s.skillCard}
+                skill={skill}
+                index={i}
                 onPress={() => { setSelectedSkill(skill); setInputValues({}); setPickedFiles({}) }}
-                activeOpacity={0.8}>
-                <View style={[s.skillAccent, { backgroundColor: ['#3b82f6', '#8b5cf6', '#f97316', '#10b981', '#ec4899', '#06b6d4'][i % 6] }]} />
-                <View style={s.skillBody}>
-                  <Text style={s.skillName} numberOfLines={1}>{skill.name}</Text>
-                  {skill.description ? <Text style={s.skillDesc} numberOfLines={2}>{skill.description}</Text> : null}
-                  <View style={s.skillMeta}>
-                    <Text style={s.skillPrice}>{skill.price_credits} {t.credits}/{lang === 'zh' ? '次' : 'run'}</Text>
-                    {skill.call_count > 0 && <Text style={s.skillCalls}>{skill.call_count} {t.calls}</Text>}
-                  </View>
-                </View>
-              </TouchableOpacity>
+              />
             ))}
           </>
         ) : (

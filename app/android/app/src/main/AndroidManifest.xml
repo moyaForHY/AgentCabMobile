@@ -97,6 +97,10 @@
         android:name=".automation.KeepAliveService"
         android:exported="false"
         android:foregroundServiceType="dataSync" />
+      <service
+        android:name=".automation.AutomationHeadlessService"
+        android:exported="false"
+        android:foregroundServiceType="dataSync" />
 
       <receiver
         android:name=".automation.AlarmReceiver"

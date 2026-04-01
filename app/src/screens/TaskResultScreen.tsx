@@ -168,11 +168,7 @@ export default function TaskResultScreen({ route }: any) {
               </TouchableOpacity>
             </View>
           }>
-          <View style={s.codeBlock}>
-            <Text style={s.codeText}>
-              {typeof output === 'string' ? output : JSON.stringify(output, null, 2)}
-            </Text>
-          </View>
+          <TruncatedCode text={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
         </CollapsibleSection>
       )}
 
@@ -194,11 +190,7 @@ export default function TaskResultScreen({ route }: any) {
       {/* Input Data */}
       {input && (
         <CollapsibleSection title={t.input}>
-          <View style={s.codeBlock}>
-            <Text style={s.codeText}>
-              {typeof input === 'string' ? input : JSON.stringify(input, null, 2)}
-            </Text>
-          </View>
+          <TruncatedCode text={typeof input === 'string' ? input : JSON.stringify(input, null, 2)} />
         </CollapsibleSection>
       )}
 
@@ -474,6 +466,28 @@ function OutputBeautified({ output, t }: { output: any; t: any }) {
             </View>
           ))}
         </View>
+      )}
+    </View>
+  )
+}
+
+const TRUNCATE_LIMIT = 2000
+
+function TruncatedCode({ text }: { text: string }) {
+  const [expanded, setExpanded] = React.useState(false)
+  const needsTruncate = text.length > TRUNCATE_LIMIT
+
+  return (
+    <View style={s.codeBlock}>
+      <Text style={s.codeText}>
+        {needsTruncate && !expanded ? text.slice(0, TRUNCATE_LIMIT) + '...' : text}
+      </Text>
+      {needsTruncate && (
+        <TouchableOpacity onPress={() => setExpanded(!expanded)} style={{ paddingVertical: 8 }}>
+          <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600', textAlign: 'center' }}>
+            {expanded ? '▲ Collapse' : `▼ Show all (${(text.length / 1024).toFixed(1)}KB)`}
+          </Text>
+        </TouchableOpacity>
       )}
     </View>
   )
