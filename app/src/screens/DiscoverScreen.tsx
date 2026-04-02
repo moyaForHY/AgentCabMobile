@@ -78,7 +78,10 @@ export default function DiscoverScreen({ navigation }: any) {
       const result = await fetchSkills(p, PAGE_SIZE, cat === 'all' ? undefined : cat, q || undefined)
       const items = result.items.filter((s: Skill) => s.status === 'published' || s.status === 'active')
       if (append) {
-        setSkills(prev => [...prev, ...items])
+        setSkills(prev => {
+          const existingIds = new Set(prev.map(s => s.id))
+          return [...prev, ...items.filter(s => !existingIds.has(s.id))]
+        })
       } else {
         setSkills(items)
       }

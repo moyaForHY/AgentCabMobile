@@ -161,6 +161,17 @@ export default function AppNavigator() {
       if (url) handleDeepLink(url)
     })
     const sub = Linking.addEventListener('url', ({ url }) => handleDeepLink(url))
+
+    // Handle notification tap (intent extras with callId)
+    const { NativeModules } = require('react-native')
+    NativeModules.IntentModule?.getInitialIntent?.().then((extras: any) => {
+      if (extras?.callId && extras?.navigate === 'TaskResult') {
+        setTimeout(() => {
+          navigationRef.current?.navigate('TaskResult' as never, { taskId: extras.callId } as never)
+        }, 500)
+      }
+    }).catch(() => {})
+
     return () => sub.remove()
   }, [])
 

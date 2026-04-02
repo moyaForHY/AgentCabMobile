@@ -9,8 +9,12 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return true
 }
 
-export async function showNotification(title: string, body: string, id = Date.now()): Promise<void> {
-  await NM.showNotification(title, body, id % 100000)
+export async function showNotification(title: string, body: string, id = Date.now(), callId?: string): Promise<void> {
+  if (callId && NM.showNotificationWithCallId) {
+    await NM.showNotificationWithCallId(title, body, id % 100000, callId)
+  } else {
+    await NM.showNotification(title, body, id % 100000)
+  }
 }
 
 export async function cancelNotification(id: number): Promise<void> {

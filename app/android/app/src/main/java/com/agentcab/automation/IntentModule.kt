@@ -17,11 +17,18 @@ class IntentModule(private val reactContext: ReactApplicationContext) : ReactCon
             return
         }
         val ruleId = activity.intent?.getStringExtra("automationRuleId")
-        if (ruleId != null) {
+        val callId = activity.intent?.getStringExtra("callId")
+        val navigate = activity.intent?.getStringExtra("navigate")
+
+        if (ruleId != null || callId != null) {
             val extras = WritableNativeMap()
-            extras.putString("automationRuleId", ruleId)
-            // Clear so it doesn't re-execute on config change
+            if (ruleId != null) extras.putString("automationRuleId", ruleId)
+            if (callId != null) extras.putString("callId", callId)
+            if (navigate != null) extras.putString("navigate", navigate)
+            // Clear so it doesn't re-trigger
             activity.intent?.removeExtra("automationRuleId")
+            activity.intent?.removeExtra("callId")
+            activity.intent?.removeExtra("navigate")
             promise.resolve(extras)
         } else {
             promise.resolve(null)

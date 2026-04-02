@@ -43,6 +43,7 @@ class MainApplication : Application(), ReactApplication {
           add(CallLogPackage())
           add(SmsPackage())
           add(AlarmSchedulerPackage())
+          add(com.agentcab.usagestats.UsageStatsPackage())
         },
     )
   }

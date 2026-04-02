@@ -19,6 +19,7 @@ import { permissionStrings, dataCollectionStrings, smsGuideStrings, getDeviceBra
 const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
 const CallLogModule = NativeModules.CallLogModule ?? null
 const SmsModule = NativeModules.SmsModule ?? null
+const UsageStatsModule = NativeModules.UsageStatsManager ?? null
 
 type DeviceOptions = {
   days?: number
@@ -432,6 +433,50 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
         if (!DeviceInfoManager) return { isPlaying: false, error: 'DeviceInfoManager not available' }
         return await withTimeout(DeviceInfoManager.getMediaPlayingInfo(), COLLECT_TIMEOUT, null)
       } catch (e) { if (e instanceof PermissionError) throw e; return null }
+
+    // ── Usage Stats ──
+    case 'device:usage_stats':
+      try {
+        if (!UsageStatsModule) return []
+        return await withTimeout((async () => {
+          const granted = await UsageStatsModule.isPermissionGranted()
+          if (!granted) {
+            const { showModal } = require('../components/AppModal')
+            const { isChinese } = require('../utils/i18n')
+            const zh = isChinese()
+            showModal(
+              zh ? '需要使用情况访问权限' : 'Usage Access Required',
+              zh ? '请在设置中开启"使用情况访问权限"以分析手机使用习惯' : 'Please enable "Usage Access" in Settings to analyze phone habits',
+              [
+                { text: zh ? '去设置' : 'Open Settings', onPress: () => UsageStatsModule.requestPermission() },
+                { text: zh ? '跳过' : 'Skip', style: 'cancel' as const },
+              ],
+            )
+            throw new PermissionError('使用情况访问权限未开启')
+          }
+          return await UsageStatsModule.getUsageStats(options?.days || 7)
+        })(), COLLECT_TIMEOUT, [])
+      } catch (e) { if (e instanceof PermissionError) throw e; return [] }
+
+    case 'device:usage_daily':
+      try {
+        if (!UsageStatsModule) return []
+        return await withTimeout((async () => {
+          const granted = await UsageStatsModule.isPermissionGranted()
+          if (!granted) throw new PermissionError('使用情况访问权限未开启')
+          return await UsageStatsModule.getDailyBreakdown(options?.days || 7)
+        })(), COLLECT_TIMEOUT, [])
+      } catch (e) { if (e instanceof PermissionError) throw e; return [] }
+
+    case 'device:usage_hourly':
+      try {
+        if (!UsageStatsModule) return []
+        return await withTimeout((async () => {
+          const granted = await UsageStatsModule.isPermissionGranted()
+          if (!granted) throw new PermissionError('使用情况访问权限未开启')
+          return await UsageStatsModule.getHourlyDistribution()
+        })(), COLLECT_TIMEOUT, [])
+      } catch (e) { if (e instanceof PermissionError) throw e; return [] }
 
     default:
       return null

@@ -102,7 +102,11 @@ export default function TasksScreen({ navigation }: any) {
       if (replace) {
         setCalls(data.items)
       } else {
-        setCalls(prev => [...prev, ...data.items])
+        setCalls(prev => {
+          const existingIds = new Set(prev.map((c: any) => c.id))
+          const newItems = data.items.filter((c: any) => !existingIds.has(c.id))
+          return [...prev, ...newItems]
+        })
       }
       // Only update stats from unfiltered requests (all tab or first load)
       if (!statusParam) {

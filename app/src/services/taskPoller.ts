@@ -62,11 +62,15 @@ async function checkOnce() {
           showNotification(
             skillName || (zh ? '任务完成' : 'Task Complete'),
             zh ? `${skillName} 已完成，点击查看结果` : `${skillName} finished. Tap to view results.`,
+            undefined,
+            c.id,
           ).catch(() => {})
         } else if (c.status === 'failed') {
           showNotification(
             zh ? '任务失败' : 'Task Failed',
             zh ? `${skillName} 执行失败：${c.error_message || '未知错误'}` : `${skillName} failed: ${c.error_message || 'Unknown error'}`,
+            undefined,
+            c.id,
           ).catch(() => {})
         }
 
