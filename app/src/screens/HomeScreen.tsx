@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   RefreshControl,
   Animated,
   ActivityIndicator,
@@ -12,23 +13,31 @@ import {
   Modal,
   TextInput,
   Alert,
+  NativeModules,
+  DeviceEventEmitter,
+  Platform,
 } from 'react-native'
 import LinearGradient from 'react-native-linear-gradient'
-import { colors, gradients, radii, spacing, fontSize, fontWeight } from '../utils/theme'
+import { colors, gradients, radii, spacing, fontSize, fontWeight, shadows } from '../utils/theme'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
-import { fetchWallet, fetchSkills, fetchCalls, fetchSkillById, callSkill, type Skill } from '../services/api'
+import { fetchWallet, fetchSkills, fetchCalls, fetchSkillById, callSkill, uploadFile, type Skill } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 import { getRules, type AutomationRule } from '../services/automationService'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
+import { takePhoto, pickPhoto, type PickedFile } from '../services/deviceCapabilities'
 import { trackTask } from '../services/taskPoller'
 import { taskManager } from '../services/taskManager'
 import { showModal } from '../components/AppModal'
 import SkillCard from '../components/SkillCard'
 import { SkillCardSkeleton } from '../components/Skeleton'
 import Icon from 'react-native-vector-icons/Feather'
+import MIcon from 'react-native-vector-icons/MaterialCommunityIcons'
+import { ScriptEngine } from '../scripting'
+import { createBridge } from '../scripting/bridge'
+import BackgroundService from 'react-native-background-actions'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -74,11 +83,61 @@ export default function HomeScreen({ navigation }: any) {
   const [renamingApi, setRenamingApi] = useState<any>(null)
   const [renameText, setRenameText] = useState('')
   const [runningShortcut, setRunningShortcut] = useState<string | null>(null)
+  const engineRef = useRef<ScriptEngine | null>(null)
 
   const handleQuickRun = async (api: any) => {
     if (runningShortcut) return
-    setRunningShortcut(api.id)
-    incrementUsage(api.id)
+    const uid = api.shortcutId || api.id
+    setRunningShortcut(uid)
+    incrementUsage(uid)
+
+    // Script shortcut — execute .acs directly
+    if (api.script) {
+      try {
+        const OverlayManager = NativeModules.ScriptOverlayManager
+        if (Platform.OS === 'android' && OverlayManager) {
+          try {
+            const canDraw = await OverlayManager.canDrawOverlays()
+            if (!canDraw) { await OverlayManager.requestOverlayPermission(); setRunningShortcut(null); return }
+            await OverlayManager.startOverlay()
+          } catch {}
+        }
+        const stopSub = DeviceEventEmitter.addListener('onScriptStop', () => { engineRef.current?.cancel() })
+        const runScript = async () => {
+          const bridge = createBridge(() => {})
+          const engine = new ScriptEngine(bridge, {})
+          engineRef.current = engine
+          await engine.run(api.script)
+          engineRef.current = null
+        }
+        if (Platform.OS === 'android') {
+          try {
+            await BackgroundService.start(runScript, {
+              taskName: 'AgentCab Script',
+              taskTitle: lang === 'zh' ? '脚本运行中' : 'Script Running',
+              taskDesc: api.customName || api.name,
+              taskIcon: { name: 'ic_launcher', type: 'mipmap' },
+              color: '#2563eb',
+              linkingURI: 'agentcab://',
+            })
+            await new Promise<void>((resolve) => {
+              const check = setInterval(() => { if (!engineRef.current) { clearInterval(check); resolve() } }, 1000)
+            })
+            await BackgroundService.stop()
+          } catch { await runScript() }
+        } else {
+          await runScript()
+        }
+        stopSub.remove()
+        if (Platform.OS === 'android' && OverlayManager) { try { await OverlayManager.stopOverlay() } catch {} }
+      } catch (err: any) {
+        showModal(t.errorTitle, err.message || t.failed)
+      } finally {
+        setRunningShortcut(null)
+      }
+      return
+    }
+
     try {
       const skill = await fetchSkillById(api.id)
       const formats = getDeviceFormats(skill.input_schema || {})
@@ -92,7 +151,56 @@ export default function HomeScreen({ navigation }: any) {
       const missingFields = manualFields.filter(([key]) => input[key] == null || input[key] === '')
 
       if (missingFields.length > 0) {
-        // Has unfilled manual fields — navigate to detail page
+        // Check if all missing fields are file/photo fields — handle inline
+        const allFileFields = missingFields.every(([key, prop]: [string, any]) => {
+          const fmt = prop?.format || ''
+          const itemFmt = prop?.items?.format || ''
+          return fmt === 'file_id' || itemFmt === 'file_id' || key === 'file_ids' || key === 'file_id' || key === 'files' || key === 'file'
+        })
+
+        if (allFileFields && missingFields.length === 1) {
+          const [fieldKey, fieldProp] = missingFields[0] as [string, any]
+
+          // Use saved fileInputMode from shortcut
+          const file = api.fileInputMode === 'camera' ? await takePhoto() : await pickPhoto()
+          if (!file) {
+            setRunningShortcut(null)
+            return
+          }
+
+          // Upload in background — show toast and return to home
+          setRunningShortcut(null)
+          showModal(lang === 'zh' ? '正在处理' : 'Processing', lang === 'zh' ? '照片已拍摄，正在后台上传并调用...' : 'Photo captured, uploading and calling in background...')
+
+          // Do upload + call async
+          ;(async () => {
+            try {
+              const uploaded = await uploadFile(file.uri, file.name, file.mimeType)
+              const isArray = fieldProp?.type === 'array'
+              input[fieldKey] = isArray ? [uploaded.file_id] : uploaded.file_id
+
+              if (formats.length > 0) {
+                const deviceData = await collectAllDeviceData(skill.input_schema || {})
+                input = { ...input, ...deviceData }
+              }
+
+              const result = await callSkill(skill.id, { input })
+              taskManager.addTask(result.call_id, skill, input, result.credits_cost)
+              trackTask(result.call_id)
+              events.emit(EVENT_WALLET_CHANGED)
+              refreshCalls()
+              if (result.status === 'completed' || result.status === 'success') {
+                events.emit(EVENT_CALL_COMPLETED, { call_id: result.call_id, skill_name: skill.name, status: result.status })
+              }
+              showModal(lang === 'zh' ? '调用成功' : 'Call Started', lang === 'zh' ? `"${skill.name}" 已提交，可在任务列表查看结果` : `"${skill.name}" submitted. Check Tasks for results.`)
+            } catch (err: any) {
+              showModal(t.errorTitle, err.message || t.failed)
+            }
+          })()
+          return
+        }
+
+        // Other missing fields — navigate to detail page
         navigation.navigate('SkillDetail', { skillId: api.id, autoUse: true })
         setRunningShortcut(null)
         return
@@ -120,6 +228,7 @@ export default function HomeScreen({ navigation }: any) {
           status: result.status,
         })
       }
+      showModal(lang === 'zh' ? '调用成功' : 'Call Started', lang === 'zh' ? `"${skill.name}" 已提交，可在任务列表查看结果` : `"${skill.name}" submitted. Check Tasks for results.`)
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.failed)
     } finally {
@@ -167,7 +276,7 @@ export default function HomeScreen({ navigation }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
 
         {/* Balance Card */}
-        <TouchableOpacity activeOpacity={0.92} onPress={() => navigation.navigate('Wallet')}>
+        <TouchableOpacity activeOpacity={0.92} onPress={() => navigation.navigate('Wallet')} style={styles.balanceCardShadow}>
           <LinearGradient
             colors={['#2563eb', '#1e40af']}
             start={{ x: 0, y: 0 }}
@@ -204,42 +313,46 @@ export default function HomeScreen({ navigation }: any) {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Pinned Clones — Shortcuts style */}
+        {/* Shortcuts — iOS style */}
         {pinned.filter(p => p.isShortcut).length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷操作' : 'Quick Actions'}</Text>
-            <View style={styles.pinnedGrid}>
-              {[...pinned.filter(p => p.isShortcut)].sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).map((api, i) => {
-                const colors = [
-                  ['#3b82f6', '#2563eb'], ['#f97316', '#ea580c'], ['#8b5cf6', '#7c3aed'],
-                  ['#10b981', '#059669'], ['#ec4899', '#db2777'], ['#06b6d4', '#0891b2'],
-                  ['#f59e0b', '#d97706'], ['#ef4444', '#dc2626'],
-                ]
-                const [c1, c2] = colors[i % colors.length]
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionTitleBar} />
+              <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷指令' : 'Shortcuts'}</Text>
+            </View>
+            <View style={styles.shortcutsGrid}>
+              {[...pinned.filter(p => p.isShortcut)].sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).map((item) => {
+                const defaultColors = ['#FF6482', '#FF9F0A', '#5E5CE6', '#30D158', '#BF5AF2', '#64D2FF', '#FFD60A', '#FF453A', '#2563eb', '#06b6d4']
+                const name = (item.customName || item.name)
+                const icon = item.icon || 'lightning-bolt'
+                let bg = item.iconColor
+                if (!bg) {
+                  let hash = 0
+                  for (let ci = 0; ci < name.length; ci++) { hash = ((hash << 5) - hash + name.charCodeAt(ci)) | 0 }
+                  bg = defaultColors[Math.abs(hash) % defaultColors.length]
+                }
+                const uid = item.shortcutId || item.id
+                const isRunning = runningShortcut === uid
                 return (
                   <TouchableOpacity
-                    key={api.id}
-                    style={styles.pinnedCard}
-                    onPress={() => handleQuickRun(api)}
+                    key={uid}
+                    style={styles.shortcutCard}
+                    onPress={() => handleQuickRun(item)}
                     onLongPress={() => {
-                      setRenamingApi(api)
-                      setRenameText(api.customName || api.name)
+                      setRenamingApi(item)
+                      setRenameText(item.customName || item.name)
                       setShowRenameModal(true)
                     }}
-                    activeOpacity={0.8}
-                    disabled={runningShortcut === api.id}>
-                    <LinearGradient
-                      colors={runningShortcut === api.id ? ['#94a3b8', '#64748b'] : [c1, c2]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.pinnedGradient}>
-                      {runningShortcut === api.id ? (
+                    activeOpacity={0.7}
+                    disabled={isRunning}>
+                    <View style={[styles.shortcutIcon, { backgroundColor: bg }]}>
+                      {isRunning ? (
                         <ActivityIndicator color="#fff" size="small" />
                       ) : (
-                        <Text style={styles.pinnedIcon}>▶</Text>
+                        <MIcon name={icon} size={24} color="#fff" />
                       )}
-                      <Text style={styles.pinnedName} numberOfLines={2}>{api.customName || api.name}</Text>
-                    </LinearGradient>
+                    </View>
+                    <Text style={styles.shortcutName} numberOfLines={2}>{item.customName || item.name}</Text>
                   </TouchableOpacity>
                 )
               })}
@@ -247,58 +360,73 @@ export default function HomeScreen({ navigation }: any) {
           </View>
         )}
 
-        {/* Automations */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t.automations}</Text>
-            {automations.length > 0 && (
+        {/* Automations — only show when there are active ones */}
+        {automations.filter(a => a.enabled).length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionTitleBar} />
+                <Text style={styles.sectionTitle}>{t.automations}</Text>
+              </View>
               <TouchableOpacity onPress={() => navigation.navigate('Automations')}>
                 <Text style={styles.seeAll}>{lang === 'zh' ? '管理' : 'Manage'}</Text>
               </TouchableOpacity>
-            )}
-          </View>
-          {automations.filter(a => a.enabled).length > 0 ? (
-            automations.filter(a => a.enabled).slice(0, 3).map(rule => (
-              <View key={rule.id} style={styles.autoRow}>
-                <View style={styles.autoDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.autoName} numberOfLines={1}>{rule.skillName}</Text>
-                  <Text style={styles.autoSchedule}>
-                    {rule.schedule.type === 'daily' ? `${t.daily} ${rule.schedule.time}` :
-                     rule.schedule.type === 'weekly' ? `${t.weekly} ${rule.schedule.time}` :
-                     `${t.everyXHours.replace('X', String(Math.round((rule.schedule.intervalMinutes || 60) / 60)))}` }
-                    {rule.lastRun ? ` · ${t.lastRun} ${new Date(rule.lastRun).toLocaleDateString('zh-CN')}` : ''}
-                  </Text>
+            </View>
+            <View style={styles.autoCardShadow}>
+            <View style={styles.autoCard}>
+              {automations.filter(a => a.enabled).slice(0, 3).map((rule, idx, arr) => (
+                <View key={rule.id}>
+                  <View style={styles.autoRow}>
+                    <View style={styles.autoAccent} />
+                    <View style={styles.autoDot} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.autoName} numberOfLines={1}>{rule.skillName}</Text>
+                      <View style={styles.autoScheduleRow}>
+                        <Icon name="clock" size={12} color={colors.ink500} style={{ marginRight: 5 }} />
+                        <Text style={styles.autoSchedule}>
+                          {rule.schedule.type === 'daily' ? `${t.daily} ${rule.schedule.time}` :
+                           rule.schedule.type === 'weekly' ? `${t.weekly} ${rule.schedule.time}` :
+                           `${t.everyXHours.replace('X', String(Math.round((rule.schedule.intervalMinutes || 60) / 60)))}` }
+                          {rule.lastRun ? ` · ${t.lastRun} ${new Date(rule.lastRun).toLocaleDateString('zh-CN')}` : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  {idx < arr.length - 1 && <View style={styles.autoDivider} />}
                 </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.autoEmpty}>{t.noAutomations}</Text>
-          )}
-        </View>
+              ))}
+            </View>
+            </View>
+          </View>
+        )}
 
         {/* Getting Started — shown when no recent calls */}
         {recentCalls.length === 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{lang === 'zh' ? '快速开始' : 'Getting Started'}</Text>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionTitleBar} />
+              <Text style={styles.sectionTitle}>{lang === 'zh' ? '快速开始' : 'Getting Started'}</Text>
+            </View>
+            <View style={[styles.gettingStartedCardShadow, { marginTop: 16 }]}>
             <View style={styles.gettingStartedCard}>
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
-                <View style={styles.gsIconWrap}><Icon name="grid" size={18} color={colors.primary} /></View>
+                <View style={[styles.gsIconWrap, { backgroundColor: '#eff6ff' }]}><Icon name="grid" size={18} color="#2563eb" /></View>
                 <Text style={styles.gsText}>{lang === 'zh' ? '浏览分身' : 'Browse Clones'}</Text>
-                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+                <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
               <View style={styles.gsDivider} />
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Wallet')}>
-                <View style={styles.gsIconWrap}><Icon name="credit-card" size={18} color={colors.primary} /></View>
+                <View style={[styles.gsIconWrap, { backgroundColor: '#ecfdf5' }]}><Icon name="credit-card" size={18} color="#059669" /></View>
                 <Text style={styles.gsText}>{lang === 'zh' ? '充值积分' : 'Top up credits'}</Text>
-                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+                <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
               <View style={styles.gsDivider} />
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'ProfileTab' })}>
-                <View style={styles.gsIconWrap}><Icon name="user" size={18} color={colors.primary} /></View>
+                <View style={[styles.gsIconWrap, { backgroundColor: '#fef3c7' }]}><Icon name="user" size={18} color="#d97706" /></View>
                 <Text style={styles.gsText}>{lang === 'zh' ? '设置个人资料' : 'Set up your profile'}</Text>
-                <Icon name="chevron-right" size={18} color="#cbd5e1" />
+                <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
+            </View>
             </View>
           </View>
         )}
@@ -307,14 +435,22 @@ export default function HomeScreen({ navigation }: any) {
         {recentCalls.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t.recent}</Text>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionTitleBar} />
+                <Text style={styles.sectionTitle}>{t.recent}</Text>
+              </View>
               <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'TasksTab' })}>
                 <Text style={styles.seeAll}>{t.viewAll}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.callList}>
               {recentCalls.map((call, i) => (
-                <TouchableOpacity key={call.id} style={[styles.callCard, i === recentCalls.length - 1 && { marginBottom: 0 }]} onPress={() => navigation.navigate('TaskResult', { taskId: call.id })} activeOpacity={0.7}>
+                <View key={call.id} style={[styles.callCardShadow, i === recentCalls.length - 1 && { marginBottom: 0 }]}>
+                <Pressable style={({ pressed }) => [styles.callCard, pressed && { backgroundColor: '#f0f4f8' }]} onPress={() => navigation.navigate('TaskResult', { taskId: call.id })}>
+                  <View style={[styles.callAccent, {
+                    backgroundColor: (call.status === 'success' || call.status === 'completed') ? '#10b981' :
+                      (call.status === 'failed') ? '#ef4444' : '#3b82f6',
+                  }]} />
                   <View style={styles.callMain}>
                     <View style={styles.callLeft}>
                       {call.status === 'running' || call.status === 'pending' || call.status === 'processing' ? (
@@ -336,8 +472,8 @@ export default function HomeScreen({ navigation }: any) {
                       <View style={styles.callInfo}>
                         <TouchableOpacity
                           activeOpacity={0.6}
-                          onPress={(e) => {
-                            e.stopPropagation?.()
+                          style={{ alignSelf: 'flex-start' }}
+                          onPress={() => {
                             if (call.skill_id) navigation.navigate('SkillDetail', { skillId: call.skill_id })
                           }}>
                           <Text style={[styles.callName, call.skill_id && { color: '#2563eb' }]} numberOfLines={1}>
@@ -345,7 +481,7 @@ export default function HomeScreen({ navigation }: any) {
                           </Text>
                         </TouchableOpacity>
                         <Text style={styles.callMeta}>
-                          {call.credits_cost} {t.credits}
+                          #{call.id.slice(0, 8)} · {call.credits_cost}{t.credits}
                           {call.duration_ms ? ` · ${(call.duration_ms / 1000).toFixed(1)}s` : ''}
                         </Text>
                       </View>
@@ -357,7 +493,8 @@ export default function HomeScreen({ navigation }: any) {
                       </Text>
                     </View>
                   </View>
-                </TouchableOpacity>
+                </Pressable>
+                </View>
               ))}
             </View>
           </View>
@@ -366,7 +503,10 @@ export default function HomeScreen({ navigation }: any) {
         {/* Popular Clones */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t.popularApis}</Text>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionTitleBar} />
+              <Text style={styles.sectionTitle}>{t.popularApis}</Text>
+            </View>
             <TouchableOpacity onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
               <Text style={styles.seeAll}>{t.browse}</Text>
             </TouchableOpacity>
@@ -411,7 +551,7 @@ export default function HomeScreen({ navigation }: any) {
               <TouchableOpacity
                 style={styles.modalBtnPrimary}
                 onPress={() => {
-                  if (renameText.trim()) rename(renamingApi?.id, renameText.trim())
+                  if (renameText.trim()) rename(renamingApi?.shortcutId || renamingApi?.id, renameText.trim())
                   setShowRenameModal(false)
                 }}>
                 <Text style={styles.modalBtnPrimaryText}>{lang === 'zh' ? '保存' : 'Save'}</Text>
@@ -419,7 +559,7 @@ export default function HomeScreen({ navigation }: any) {
             </View>
             <TouchableOpacity
               style={styles.modalUnpin}
-              onPress={() => { unpin(renamingApi?.id); setShowRenameModal(false) }}>
+              onPress={() => { unpin(renamingApi?.shortcutId || renamingApi?.id); setShowRenameModal(false) }}>
               <Text style={styles.modalUnpinText}>{lang === 'zh' ? '移除快捷方式' : 'Remove shortcut'}</Text>
             </TouchableOpacity>
           </View>
@@ -443,22 +583,25 @@ function formatTime(isoStr: string, t: any): string {
 
 // ─── Styles ──────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  content: { padding: 20, paddingTop: 16 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, paddingTop: 20 },
 
   greeting: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: fontWeight.extrabold,
     color: colors.ink950,
     letterSpacing: -0.8,
-    marginBottom: 20,
+    marginBottom: spacing.lg,
   },
 
   // Balance Card
+  balanceCardShadow: {
+    borderRadius: radii.xl,
+    marginBottom: spacing.xl,
+    ...shadows.lg,
+  },
   balanceCard: {
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 28,
+    borderRadius: radii.xl,
     overflow: 'hidden',
   },
   balanceCardInner: {
@@ -466,137 +609,154 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     zIndex: 1,
+    padding: 22,
+    paddingBottom: 16,
   },
   balanceLabel: {
     fontSize: 11,
     fontWeight: fontWeight.bold,
-    color: 'rgba(255,255,255,0.55)',
-    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 1.8,
+    textTransform: 'uppercase' as any,
   },
   balanceAmount: {
-    fontSize: 36,
-    fontWeight: fontWeight.extrabold,
+    fontSize: 38,
+    fontWeight: fontWeight.black,
     color: '#fff',
-    marginTop: 4,
+    marginTop: 6,
     letterSpacing: -1.5,
   },
   rechargeBtn: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radii.sm,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   rechargeBtnText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: fontWeight.bold,
+    letterSpacing: 0.3,
   },
   decoCircle1: {
     position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    top: -40,
-    right: -20,
+    top: -50,
+    right: -30,
   },
   balanceStats: {
     flexDirection: 'row',
-    marginTop: 16,
     paddingTop: 14,
+    paddingBottom: 18,
+    paddingHorizontal: 22,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.15)',
+    borderTopColor: 'rgba(255,255,255,0.12)',
     zIndex: 1,
   },
   balanceStat: { flex: 1, alignItems: 'center' },
-  balanceStatDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.15)' },
-  balanceStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: fontWeight.medium },
-  balanceStatValue: { fontSize: 16, color: '#fff', fontWeight: fontWeight.bold, marginTop: 2 },
+  balanceStatDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.12)' },
+  balanceStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: fontWeight.medium, letterSpacing: 0.5 },
+  balanceStatValue: { fontSize: 17, color: '#fff', fontWeight: fontWeight.bold, marginTop: 4 },
 
   decoCircle2: {
     position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: 'rgba(255,255,255,0.04)',
-    bottom: -20,
-    left: 30,
+    bottom: -25,
+    left: 20,
   },
 
   // Sections
-  section: { marginBottom: 24 },
+  section: { marginBottom: 30 },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionTitleBar: {
+    width: 4,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+    marginRight: 10,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: fontWeight.bold,
+    fontSize: 18,
+    fontWeight: fontWeight.extrabold,
     color: colors.ink950,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
-  // Pinned — iOS Shortcuts style
-  pinnedGrid: {
+  // Shortcuts — iOS style
+  shortcutsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 10,
+    gap: 12,
+    marginTop: 12,
   },
-  pinnedCard: {
-    width: '48%' as any,
-    borderRadius: 16,
-    overflow: 'hidden',
+  shortcutCard: {
+    width: '22%' as any,
+    alignItems: 'center',
   },
-  pinnedGradient: {
-    padding: 16,
-    minHeight: 80,
-    justifyContent: 'flex-end',
+  shortcutIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  pinnedIcon: {
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.7)',
-    marginBottom: 8,
-  },
-  pinnedName: {
-    fontSize: 14,
-    fontWeight: fontWeight.bold,
-    color: '#fff',
-    lineHeight: 18,
+  shortcutName: {
+    fontSize: 11,
+    fontWeight: fontWeight.medium,
+    color: colors.ink700,
+    textAlign: 'center',
+    lineHeight: 14,
   },
 
   // Rename modal
   modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32,
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: spacing.xl,
   },
   modalCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 20,
+    backgroundColor: colors.white, borderRadius: radii.xl, padding: spacing.lg,
+    ...shadows.lg,
   },
   modalTitle: {
-    fontSize: 16, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 14,
+    fontSize: 17, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 16,
+    letterSpacing: -0.3,
   },
   modalInput: {
-    backgroundColor: '#f1f5f9', borderRadius: 10, padding: 12, fontSize: 15,
-    color: colors.ink950, borderWidth: 1, borderColor: 'rgba(37,99,235,0.1)', marginBottom: 16,
+    backgroundColor: colors.sand100, borderRadius: radii.md, padding: 14, fontSize: 15,
+    color: colors.ink950, borderWidth: 0, marginBottom: 18,
   },
   modalBtns: {
-    flexDirection: 'row', gap: 10,
+    flexDirection: 'row', gap: 12,
   },
   modalBtnCancel: {
-    flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+    flex: 1, paddingVertical: 13, borderRadius: radii.md, alignItems: 'center',
+    backgroundColor: colors.sand100,
   },
   modalBtnCancelText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink700 },
   modalUnpin: {
-    alignItems: 'center', marginTop: 14,
+    alignItems: 'center', marginTop: 18, paddingVertical: 4,
   },
-  modalUnpinText: { fontSize: 13, color: '#dc2626' },
+  modalUnpinText: { fontSize: 13, color: colors.danger, fontWeight: fontWeight.medium },
   modalBtnPrimary: {
-    flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center',
-    backgroundColor: '#2563eb',
+    flex: 1, paddingVertical: 13, borderRadius: radii.md, alignItems: 'center',
+    backgroundColor: colors.primary,
+    ...shadows.glow,
   },
   modalBtnPrimaryText: { fontSize: 14, fontWeight: fontWeight.bold, color: '#fff' },
 
@@ -604,17 +764,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.primary,
     fontWeight: fontWeight.semibold,
+    letterSpacing: 0.1,
   },
 
   // Call Cards
-  callList: {},
+  callList: { gap: 10 },
+  callCardShadow: {
+    borderRadius: radii.lg,
+    marginBottom: 0,
+    ...shadows.sm,
+  },
   callCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    padding: 16,
+    overflow: 'hidden',
+  },
+  callAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 3,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
   },
   callMain: {
     flexDirection: 'row',
@@ -625,12 +798,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 12,
+    marginRight: 14,
   },
   callIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: radii.sm,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -640,40 +813,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: fontWeight.semibold,
     color: colors.ink900,
+    letterSpacing: -0.1,
   },
   callMeta: {
     fontSize: 12,
     color: colors.ink500,
-    marginTop: 2,
+    marginTop: 3,
   },
   callRight: { alignItems: 'flex-end' },
   callTime: {
     fontSize: 11,
     color: colors.ink400,
-    marginTop: 4,
+    marginTop: 5,
   },
 
   // Status Badge
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radii.xs,
+    gap: 4,
   },
   statusIcon: { fontSize: 10, fontWeight: fontWeight.bold },
   statusLabel: { fontSize: 11, fontWeight: fontWeight.semibold },
 
   // Pulse Dot
   pulseDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#eff6ff',
+    width: 34,
+    height: 34,
+    borderRadius: radii.sm,
+    backgroundColor: colors.primary50,
     marginRight: 12,
     borderWidth: 2,
-    borderColor: '#bfdbfe',
+    borderColor: colors.primary200,
   },
 
   // Clone rows
@@ -684,7 +858,7 @@ const styles = StyleSheet.create({
   },
   apiRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.sand100,
   },
   apiRowLeft: { flex: 1, marginRight: 12 },
   apiRowName: {
@@ -695,7 +869,7 @@ const styles = StyleSheet.create({
   apiRowDesc: {
     fontSize: 12,
     color: colors.ink500,
-    marginTop: 2,
+    marginTop: 3,
   },
   apiRowRight: {
     flexDirection: 'row',
@@ -705,7 +879,7 @@ const styles = StyleSheet.create({
   apiPricePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radii.pill,
     backgroundColor: colors.primary,
   },
   apiPriceText: {
@@ -715,72 +889,119 @@ const styles = StyleSheet.create({
   },
   apiRowArrow: {
     fontSize: 20,
-    color: '#cbd5e1',
+    color: colors.ink400,
   },
 
   // Automations
+  autoCardShadow: {
+    borderRadius: radii.lg,
+    ...shadows.sm,
+  },
+  autoCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+  },
   autoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingLeft: 20,
+  },
+  autoAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+    backgroundColor: colors.success,
   },
   autoDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#059669',
-    marginRight: 12,
+    backgroundColor: colors.success,
+    marginRight: 14,
   },
   autoName: {
     fontSize: 14,
     fontWeight: fontWeight.semibold,
     color: colors.ink950,
+    letterSpacing: -0.1,
+  },
+  autoScheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
   },
   autoSchedule: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.ink500,
-    marginTop: 2,
+  },
+  autoDivider: {
+    height: 1,
+    backgroundColor: colors.sand200,
+    marginLeft: 42,
+    marginRight: 16,
+  },
+  autoEmptyCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    paddingVertical: 28,
+    alignItems: 'center',
+    ...shadows.sm,
   },
   autoEmpty: {
     fontSize: 13,
     color: colors.ink400,
     textAlign: 'center',
-    paddingVertical: 12,
+    fontWeight: fontWeight.medium,
+  },
+  autoEmptyAction: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: fontWeight.semibold,
+    marginTop: 8,
   },
 
   // Getting Started
+  gettingStartedCardShadow: {
+    borderRadius: radii.lg,
+    ...shadows.sm,
+  },
   gettingStartedCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
     overflow: 'hidden',
   },
   gsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
   gsIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: '#eff6ff',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primary50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
   gsText: {
     flex: 1,
     fontSize: 14,
     fontWeight: fontWeight.semibold,
     color: colors.ink950,
+    letterSpacing: -0.1,
   },
   gsDivider: {
     height: 1,
-    backgroundColor: '#f1f5f9',
-    marginLeft: 62,
+    backgroundColor: colors.sand200,
+    marginLeft: 70,
   },
 })

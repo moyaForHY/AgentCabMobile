@@ -20,6 +20,9 @@ import com.agentcab.storage.StorageScannerPackage
 import com.agentcab.calllog.CallLogPackage
 import com.agentcab.sms.SmsPackage
 import com.agentcab.automation.AlarmSchedulerPackage
+import com.agentcab.scripting.ScriptOverlayPackage
+import com.agentcab.ocr.OcrPackage
+import com.agentcab.cv.CvPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -44,6 +47,9 @@ class MainApplication : Application(), ReactApplication {
           add(SmsPackage())
           add(AlarmSchedulerPackage())
           add(com.agentcab.usagestats.UsageStatsPackage())
+          add(ScriptOverlayPackage())
+          add(OcrPackage())
+          add(CvPackage())
         },
     )
   }

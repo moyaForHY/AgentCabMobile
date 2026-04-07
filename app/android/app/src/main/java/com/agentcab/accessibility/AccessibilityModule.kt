@@ -75,6 +75,55 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun pasteText(text: String, promise: Promise) {
+        try {
+            if (!AgentAccessibilityService.isRunning()) {
+                promise.reject("NOT_ENABLED", "Accessibility service is not enabled")
+                return
+            }
+            // Set clipboard on main thread
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            mainHandler.post {
+                try {
+                    val clipboard = reactApplicationContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("text", text)
+                    clipboard.setPrimaryClip(clip)
+
+                    // Try multiple ways to paste
+                    val root = AgentAccessibilityService.instance?.rootInActiveWindow
+
+                    // 1. Try focused node
+                    val focused = root?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+                    if (focused != null) {
+                        focused.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_PASTE)
+                        promise.resolve(true)
+                        return@post
+                    }
+
+                    // 2. Try any editable node
+                    if (root != null) {
+                        val editables = root.findAccessibilityNodeInfosByText("")
+                        for (node in editables) {
+                            if (node.isEditable) {
+                                node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_PASTE)
+                                promise.resolve(true)
+                                return@post
+                            }
+                        }
+                    }
+
+                    // 3. Clipboard is set — script can long press to paste manually
+                    promise.resolve(false)
+                } catch (e: Exception) {
+                    promise.resolve(false)
+                }
+            }
+        } catch (e: Exception) {
+            promise.reject("PASTE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun setTextByTarget(targetText: String, newText: String, promise: Promise) {
         try {
             if (!AgentAccessibilityService.isRunning()) {
@@ -169,6 +218,25 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
             }, null)
         } catch (e: Exception) {
             promise.reject("SWIPE_ERROR", e.message, e)
+        }
+    }
+
+    // testOcr removed — OCR moved to PaddleOcrModule
+
+    @ReactMethod
+    fun launchApp(packageName: String, promise: Promise) {
+        try {
+            val context = reactApplicationContext
+            val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                promise.resolve(true)
+            } else {
+                promise.reject("NOT_FOUND", "App not found: $packageName")
+            }
+        } catch (e: Exception) {
+            promise.reject("LAUNCH_ERROR", e.message, e)
         }
     }
 }
