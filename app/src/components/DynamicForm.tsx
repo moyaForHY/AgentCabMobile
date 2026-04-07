@@ -15,7 +15,7 @@ import {
   Image,
 } from 'react-native'
 import { colors, spacing, fontSize } from '../utils/theme'
-import { pickByFormat, pickPhoto, pickVideo, pickFile, type PickedFile } from '../services/deviceCapabilities'
+import { pickByFormat, pickPhoto, pickVideo, pickFile, takePhoto, type PickedFile } from '../services/deviceCapabilities'
 
 type SchemaProperty = {
   type?: string
@@ -27,6 +27,7 @@ type SchemaProperty = {
   maximum?: number
   format?: string // 'file', 'image', 'uri'
   items?: SchemaProperty
+  maxItems?: number
 }
 
 type JsonSchema = {
@@ -96,16 +97,22 @@ function FormField({
   const format = prop.format || ''
   const itemFormat = prop.items?.format || ''
   const isFile = format === 'file' || format === 'image' || format === 'video' || format === 'audio' || format === 'document' || format === 'file_id' || itemFormat === 'file_id' || fieldKey === 'files' || fieldKey === 'file' || fieldKey === 'file_ids' || fieldKey === 'file_id'
-  const detectedFormat = format || itemFormat || (fieldKey.includes('image') || fieldKey.includes('photo') ? 'image' : fieldKey.includes('video') ? 'video' : 'file')
+  const descLower = (hint || '').toLowerCase()
+  const keyLower = fieldKey.toLowerCase()
+  const looksLikePhoto = keyLower.includes('photo') || keyLower.includes('image') ||
+    descLower.includes('photo') || descLower.includes('image') || descLower.includes('照片') || descLower.includes('图片')
+  const detectedFormat = format || itemFormat || (keyLower.includes('image') || keyLower.includes('photo') ? 'image' : keyLower.includes('video') ? 'video' : 'file')
+  const showCamera = detectedFormat === 'image' || (detectedFormat === 'file' && looksLikePhoto) || format === 'file_id' && looksLikePhoto
 
   // File picker — auto-detects type from schema format
   if (isFile) {
     const maxFiles = prop.type === 'array' ? (prop.maxItems || 10) : 1
     const atLimit = pickedFiles.length >= maxFiles
 
-    const pickerButtons: { label: string; format: string }[] = []
-    if (detectedFormat === 'image') {
-      pickerButtons.push({ label: '📷 Photo', format: 'image' })
+    const pickerButtons: { label: string; format: string; action?: 'camera' }[] = []
+    if (detectedFormat === 'image' || showCamera) {
+      pickerButtons.push({ label: '📷 Gallery', format: 'image' })
+      pickerButtons.push({ label: '📸 Camera', format: 'image', action: 'camera' })
       pickerButtons.push({ label: '📁 File', format: 'file' })
     } else if (detectedFormat === 'video') {
       pickerButtons.push({ label: '🎬 Video', format: 'video' })
@@ -136,12 +143,14 @@ function FormField({
 
         {!atLimit && (
           <View style={styles.fileButtons}>
-            {pickerButtons.map(btn => (
+            {pickerButtons.map((btn, i) => (
               <TouchableOpacity
-                key={btn.format}
+                key={`${btn.format}_${i}`}
                 style={styles.pickButton}
                 onPress={async () => {
-                  const file = await pickByFormat(btn.format)
+                  const file = btn.action === 'camera'
+                    ? await takePhoto()
+                    : await pickByFormat(btn.format)
                   if (file) onFilePicked([...pickedFiles, file])
                 }}>
                 <Text style={styles.pickButtonText}>{btn.label}</Text>
@@ -162,13 +171,13 @@ function FormField({
         </Text>
         {hint ? <Text style={styles.hint}>{hint}</Text> : null}
         <View style={styles.enumRow}>
-          {prop.enum.map(opt => (
+          {prop.enum.map((opt: any, idx: number) => (
             <TouchableOpacity
               key={String(opt)}
               style={[styles.enumOption, value === opt && styles.enumOptionSelected]}
               onPress={() => onChange(opt)}>
               <Text style={[styles.enumText, value === opt && styles.enumTextSelected]}>
-                {String(opt)}
+                {(prop as any).enumNames?.[idx] || String(opt)}
               </Text>
             </TouchableOpacity>
           ))}

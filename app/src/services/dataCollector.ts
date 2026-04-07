@@ -137,7 +137,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── Call Log ──
     case 'device:call_log':
       try {
-        if (!CallLogModule) throw new Error('Call log module not available')
+        if (!CallLogModule || Platform.OS !== 'android') throw new Error('Call log module not available')
         return await withTimeout((async () => {
           const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_CALL_LOG)
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
@@ -151,7 +151,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── SMS ──
     case 'device:sms':
       try {
-        if (!SmsModule) throw new Error('SMS module not available')
+        if (!SmsModule || Platform.OS !== 'android') throw new Error('SMS module not available')
         return await withTimeout((async () => {
           const smsGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS)
           if (smsGranted !== PermissionsAndroid.RESULTS.GRANTED) {
@@ -255,7 +255,7 @@ export async function collectByFormat(format: string, options?: DeviceOptions): 
     // ── Location ──
     case 'device:location':
       try {
-        if (!DeviceInfoManager) return { latitude: 0, longitude: 0, accuracy: -1 }
+        if (!DeviceInfoManager || Platform.OS !== 'android') return { latitude: 0, longitude: 0, accuracy: -1 }
         return await withTimeout((async () => {
           const locGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
           if (locGranted !== PermissionsAndroid.RESULTS.GRANTED) {

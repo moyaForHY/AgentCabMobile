@@ -2,10 +2,18 @@ package com.agentcab.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.HardwareBuffer
+import android.media.Image
+import android.media.ImageReader
+import android.os.Build
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.facebook.react.bridge.WritableNativeArray
 import com.facebook.react.bridge.WritableNativeMap
+import java.util.concurrent.Executors
 
 /**
  * Accessibility Service that can read screen content and perform actions on other apps.
@@ -67,6 +75,40 @@ class AgentAccessibilityService : AccessibilityService() {
         fun performGlobalAction(action: Int): Boolean {
             val inst = instance ?: return false
             return inst.performGlobalAction(action)
+        }
+
+        /**
+         * Take a screenshot using AccessibilityService API (Android 11+).
+         * Returns Bitmap via callback on success, null on failure.
+         */
+        fun takeScreenshot(callback: (Bitmap?) -> Unit) {
+            val inst = instance
+            if (inst == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                callback(null)
+                return
+            }
+            val executor = Executors.newSingleThreadExecutor()
+            inst.takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                executor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        try {
+                            val hwBuffer = screenshot.hardwareBuffer
+                            val bitmap = Bitmap.wrapHardwareBuffer(hwBuffer, screenshot.colorSpace)
+                            hwBuffer.close()
+                            val swBitmap = bitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                            bitmap?.recycle()
+                            callback(swBitmap)
+                        } catch (e: Exception) {
+                            callback(null)
+                        }
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        callback(null)
+                    }
+                }
+            )
         }
 
         private fun traverseNode(node: AccessibilityNodeInfo, result: MutableList<Map<String, Any?>>, depth: Int) {

@@ -7,10 +7,10 @@ import {
   TouchableOpacity,
   Switch,
   RefreshControl,
-  StatusBar,
 } from 'react-native'
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useI18n } from '../i18n'
 import {
   getRules,
@@ -23,9 +23,8 @@ import {
 import { events } from '../services/events'
 import Icon from 'react-native-vector-icons/Feather'
 
-const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
-
 export default function AutomationsScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets()
   const { t, lang } = useI18n()
   const [rules, setRules] = useState<AutomationRule[]>([])
   const [refreshing, setRefreshing] = useState(false)
@@ -116,7 +115,7 @@ export default function AutomationsScreen({ navigation }: any) {
   return (
     <View style={s.container}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.6}>
           <Text style={s.backBtn}>{t.back}</Text>
         </TouchableOpacity>
@@ -164,7 +163,6 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: colors.white,
     paddingHorizontal: 16,
-    paddingTop: STATUS_BAR_HEIGHT + 8,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(37, 99, 235, 0.06)',

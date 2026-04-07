@@ -11,19 +11,27 @@ export async function downloadToDevice(url: string, filename: string, mimeType?:
     const token = await getAccessToken()
     const mime = mimeType || inferMimeType(filename)
 
-    const res = await ReactNativeBlobUtil.config({
-      addAndroidDownloads: {
-        useDownloadManager: true,
-        notification: true,
-        title: filename,
-        description: 'Downloaded from AgentCab',
-        mime,
-        mediaScannable: true,
-        path: `/storage/emulated/0/Download/${filename}`,
-      },
-    }).fetch('GET', url, token ? { Authorization: `Bearer ${token}` } : {})
+    if (Platform.OS === 'android') {
+      const res = await ReactNativeBlobUtil.config({
+        addAndroidDownloads: {
+          useDownloadManager: true,
+          notification: true,
+          title: filename,
+          description: 'Downloaded from AgentCab',
+          mime,
+          mediaScannable: true,
+          path: `/storage/emulated/0/Download/${filename}`,
+        },
+      }).fetch('GET', url, token ? { Authorization: `Bearer ${token}` } : {})
 
-    return `/storage/emulated/0/Download/${filename}`
+      return `/storage/emulated/0/Download/${filename}`
+    } else {
+      // iOS: download to app cache directory
+      const cachePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${filename}`
+      await ReactNativeBlobUtil.config({ path: cachePath })
+        .fetch('GET', url, token ? { Authorization: `Bearer ${token}` } : {})
+      return cachePath
+    }
   } catch {
     return null
   }
@@ -38,6 +46,10 @@ export async function openFile(path: string, mimeType?: string): Promise<void> {
     try {
       // Don't pass chooserTitle to avoid FLAG_ACTIVITY_NEW_TASK issue
       await ReactNativeBlobUtil.android.actionViewIntent(path, mime)
+    } catch {}
+  } else if (Platform.OS === 'ios') {
+    try {
+      await ReactNativeBlobUtil.ios.openDocument(path)
     } catch {}
   }
 }

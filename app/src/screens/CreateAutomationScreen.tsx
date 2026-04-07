@@ -6,13 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  StatusBar,
   Animated,
   Easing,
 } from 'react-native'
 import LinearGradient from 'react-native-linear-gradient'
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useI18n } from '../i18n'
 import { fetchSkills, fetchSkillById, type Skill } from '../services/api'
 import { useKeyboard } from '../hooks/useKeyboard'
@@ -25,8 +25,6 @@ import {
   generateRuleId,
   type AutomationRule,
 } from '../services/automationService'
-
-const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
@@ -44,6 +42,7 @@ const WEEKDAY_FULL_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
 const WEEKDAY_FULL_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 export default function CreateAutomationScreen({ route, navigation }: any) {
+  const insets = useSafeAreaInsets()
   const { t, lang } = useI18n()
   const { height: kbHeight } = useKeyboard()
   const editRule = route?.params?.editRule as AutomationRule | undefined
@@ -176,7 +175,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
   return (
     <View style={s.container}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 6 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.6} style={s.headerBack}>
           <Text style={s.headerBackIcon}>{'‹'}</Text>
         </TouchableOpacity>
@@ -344,12 +343,14 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
               onPress={handleSave}
               disabled={saving}
               activeOpacity={0.85}>
-              <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.saveBtn}>
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={s.saveBtnText}>{editRule ? t.updateAutomation : t.saveAutomation}</Text>
-                )}
+              <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.saveBtnGradient}>
+                <View style={s.saveBtn}>
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={s.saveBtnText}>{editRule ? t.updateAutomation : t.saveAutomation}</Text>
+                  )}
+                </View>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -368,7 +369,7 @@ const s = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#fff', paddingHorizontal: 16,
-    paddingTop: STATUS_BAR_HEIGHT + 6, paddingBottom: 12,
+    paddingBottom: 12,
     borderBottomWidth: 1, borderBottomColor: 'rgba(37, 99, 235, 0.06)',
   },
   headerBack: {
@@ -526,6 +527,7 @@ const s = StyleSheet.create({
 
   // Save
   saveBtnWrap: { borderRadius: 14, overflow: 'hidden' },
-  saveBtn: { paddingVertical: 16, alignItems: 'center', borderRadius: 14 },
+  saveBtnGradient: { borderRadius: 14 },
+  saveBtn: { paddingVertical: 16, alignItems: 'center' },
   saveBtnText: { fontSize: 15, fontWeight: fontWeight.bold, color: '#fff' },
 })

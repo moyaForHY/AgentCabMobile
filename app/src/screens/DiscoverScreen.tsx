@@ -12,14 +12,14 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
-  StatusBar,
 } from 'react-native'
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true)
 }
 import Icon from 'react-native-vector-icons/Feather'
-import { colors, fontWeight } from '../utils/theme'
+import { colors, fontWeight, shadows, radii, spacing } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useI18n } from '../i18n'
 import { fetchSkills, fetchCategories, type Skill } from '../services/api'
 import { storage } from '../services/storage'
@@ -28,6 +28,7 @@ import SkillCard from '../components/SkillCard'
 import { SkillCardSkeleton } from '../components/Skeleton'
 
 export default function DiscoverScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets()
   const { t, lang } = useI18n()
   const [skills, setSkills] = useState<Skill[]>([])
   const [statuses, setStatuses] = useState<Record<string, any>>({})
@@ -91,7 +92,7 @@ export default function DiscoverScreen({ navigation }: any) {
       if (!q && (!cat || cat === 'all') && p === 1) {
         storage.setStringAsync('discover_skills', JSON.stringify({ skills: items, statuses: result.statuses || {} }))
       }
-    } catch {} finally { setLoading(false); setSearching(false) }
+    } catch (e: any) { console.log('[Discover] load error:', e?.message) } finally { setLoading(false); setSearching(false) }
   }
 
   useEffect(() => { load() }, [])
@@ -145,18 +146,21 @@ export default function DiscoverScreen({ navigation }: any) {
   return (
     <View style={s.container}>
       {/* Header with search */}
-      <View style={s.headerBar}>
+      <View style={[s.headerBar, { paddingTop: insets.top + 12 }]}>
         <View style={s.searchRow}>
-          <TextInput
-            style={s.searchInput}
-            placeholder={t.searchPlaceholder}
-            placeholderTextColor="#94a3b8"
-            value={search}
-            onChangeText={setSearch}
-          />
-          {searching && (
-            <ActivityIndicator size="small" color={colors.primary} style={s.searchSpinner} />
-          )}
+          <View style={s.searchInputWrapper}>
+            <Icon name="search" size={16} color={colors.ink400} style={s.searchIcon} />
+            <TextInput
+              style={s.searchInput}
+              placeholder={t.searchPlaceholder}
+              placeholderTextColor={colors.ink400}
+              value={search}
+              onChangeText={setSearch}
+            />
+            {searching && (
+              <ActivityIndicator size="small" color={colors.primary} style={s.searchSpinner} />
+            )}
+          </View>
           <TouchableOpacity
             style={[s.bookmarkBtn, showBookmarked && s.bookmarkBtnActive]}
             onPress={() => setShowBookmarked(!showBookmarked)}
@@ -170,10 +174,13 @@ export default function DiscoverScreen({ navigation }: any) {
 
       {/* Filter toggle */}
       <TouchableOpacity style={s.filterToggle} onPress={toggleFilters} activeOpacity={0.7}>
-        <Text style={s.filterToggleText}>
-          {activeCategory === 'all' ? t.filter : activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)}
-        </Text>
-        <Text style={s.filterArrow}>{filtersOpen ? '▲' : '▼'}</Text>
+        <View style={s.filterToggleInner}>
+          <Icon name="sliders" size={14} color={colors.primary} />
+          <Text style={s.filterToggleText}>
+            {activeCategory === 'all' ? t.filter : activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)}
+          </Text>
+        </View>
+        <Icon name={filtersOpen ? 'chevron-up' : 'chevron-down'} size={14} color={colors.primary} />
       </TouchableOpacity>
 
       {/* Collapsible filter chips */}
@@ -219,56 +226,67 @@ export default function DiscoverScreen({ navigation }: any) {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: colors.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 60 },
 
   headerBar: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: (StatusBar.currentHeight || 44) + 8,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(37, 99, 235, 0.06)',
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 14,
+    ...shadows.sm,
   },
-  searchRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
-  searchSpinner: { position: 'absolute' as const, right: 52, top: 10 },
+  searchRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    backgroundColor: colors.sand100,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.sand200,
+    paddingHorizontal: 14,
+  },
+  searchIcon: { marginRight: 8 },
+  searchSpinner: { marginLeft: 4 },
   bookmarkBtn: {
-    width: 38, height: 38, borderRadius: 10, backgroundColor: '#f1f5f9',
+    width: 42, height: 42, borderRadius: radii.md, backgroundColor: colors.sand100,
     justifyContent: 'center' as const, alignItems: 'center' as const,
+    borderWidth: 1,
+    borderColor: colors.sand200,
   },
-  bookmarkBtnActive: { backgroundColor: '#fffbeb' },
-  bookmarkIcon: { fontSize: 18, color: '#94a3b8' },
+  bookmarkBtnActive: { backgroundColor: '#fffbeb', borderColor: '#fde68a' },
+  bookmarkIcon: { fontSize: 20, color: colors.ink400 },
   bookmarkIconActive: { color: '#f59e0b' },
   searchInput: {
     flex: 1,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    fontSize: 14,
+    paddingVertical: 10,
+    fontSize: 15,
     color: colors.ink950,
+    fontWeight: fontWeight.regular,
   },
 
   filterToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginTop: 4,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    marginTop: 2,
+  },
+  filterToggleInner: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
   },
   filterToggleText: {
     fontSize: 13,
     fontWeight: fontWeight.semibold,
     color: colors.primary,
-  },
-  filterArrow: {
-    fontSize: 10,
-    color: colors.primary,
+    letterSpacing: 0.2,
   },
   filterPanel: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 12,
   },
   chipWrap: {
     flexDirection: 'row',
@@ -277,31 +295,31 @@ const s = StyleSheet.create({
   },
   chip: {
     paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.15)',
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.white,
+    ...shadows.sm,
   },
   chipActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    ...shadows.glow,
   },
   chipText: {
     fontSize: 13,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.medium,
     color: colors.ink700,
+    letterSpacing: 0.1,
   },
-  chipTextActive: { color: '#fff' },
+  chipTextActive: { color: colors.white, fontWeight: fontWeight.semibold },
 
-  list: { paddingTop: 4, paddingBottom: 20 },
+  list: { paddingTop: 8, paddingBottom: 24 },
 
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    borderBottomColor: colors.sand100,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
 
   titleRow: {
@@ -343,10 +361,10 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: fontWeight.semibold,
     color: colors.primary,
-    backgroundColor: '#eff6ff',
+    backgroundColor: colors.primary50,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: radii.xs,
     overflow: 'hidden',
   },
   stat: {
@@ -356,14 +374,14 @@ const s = StyleSheet.create({
   pricePill: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 16,
+    borderRadius: radii.lg,
     backgroundColor: colors.primary,
   },
   priceText: {
     fontSize: 12,
     fontWeight: fontWeight.semibold,
-    color: '#fff',
+    color: colors.white,
   },
 
-  emptyText: { fontSize: 14, color: colors.ink500 },
+  emptyText: { fontSize: 15, color: colors.ink600, fontWeight: fontWeight.medium },
 })

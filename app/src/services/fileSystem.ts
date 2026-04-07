@@ -5,7 +5,7 @@
  */
 import { NativeModules, PermissionsAndroid, Platform, Linking } from 'react-native'
 
-const { FileSystemManager } = NativeModules
+const FileSystemManager = NativeModules.FileSystemManager ?? null
 
 export type FileInfo = {
   name: string
@@ -66,45 +66,68 @@ export async function requestFilePermission(): Promise<boolean> {
 }
 
 export async function listFiles(path: string, recursive = false): Promise<FileInfo[]> {
+  if (!FileSystemManager) return []
   return FileSystemManager.listFiles(path, recursive)
 }
 
 export async function getFileInfo(path: string): Promise<FileInfo> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.getFileInfo(path)
 }
 
 export async function moveFile(source: string, dest: string): Promise<string> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.moveFile(source, dest)
 }
 
 export async function copyFile(source: string, dest: string): Promise<string> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.copyFile(source, dest)
 }
 
 export async function deleteFile(path: string): Promise<boolean> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.deleteFile(path)
 }
 
 export async function createDirectory(path: string): Promise<boolean> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.createDirectory(path)
 }
 
 export async function readTextFile(path: string): Promise<string> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.readTextFile(path)
 }
 
 export async function writeTextFile(path: string, content: string): Promise<string> {
+  if (!FileSystemManager) throw new Error('FileSystemManager not available on ' + Platform.OS)
   return FileSystemManager.writeTextFile(path, content)
 }
 
 export async function getDirectories(): Promise<DeviceDirs> {
+  if (!FileSystemManager) {
+    // Return reasonable iOS defaults
+    const docs = Platform.OS === 'ios' ? '' : '/storage/emulated/0'
+    return {
+      downloads: docs + '/Downloads',
+      documents: docs + '/Documents',
+      pictures: docs + '/Pictures',
+      music: docs + '/Music',
+      movies: docs + '/Movies',
+      dcim: docs + '/DCIM',
+      root: docs,
+    }
+  }
   return FileSystemManager.getDirectories()
 }
 
 export async function getStorageStats(): Promise<StorageStats> {
+  if (!FileSystemManager) return { totalBytes: 0, freeBytes: 0, usedBytes: 0, totalFormatted: '', freeFormatted: '', usedFormatted: '' }
   return FileSystemManager.getStorageStats()
 }
 
 export async function searchFiles(directory: string, query: string): Promise<FileInfo[]> {
+  if (!FileSystemManager) return []
   return FileSystemManager.searchFiles(directory, query)
 }

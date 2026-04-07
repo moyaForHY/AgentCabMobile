@@ -17,6 +17,7 @@ import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
 import { showModal } from '../components/AppModal'
 import Logo3D from '../components/Logo3D'
+import { colors, gradients, shadows, radii, spacing, fontSize, fontWeight } from '../utils/theme'
 
 const { width: SCREEN_W } = Dimensions.get('window')
 
@@ -165,196 +166,261 @@ export default function LoginScreen() {
   })
 
   return (
-    <LinearGradient colors={['#ffffff', '#f0f7ff', '#f8fafc']} style={s.container}>
-      <View style={s.flex}>
-        <ScrollView
-          contentContainerStyle={[s.scrollContent, { paddingBottom: kbHeight > 0 ? kbHeight : 32 }]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
+    <View style={s.container}>
+      <ScrollView
+        contentContainerStyle={[s.scrollContent, { paddingBottom: kbHeight > 0 ? kbHeight : 32 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
 
-          <View style={s.decoCircle1} />
-          <View style={s.decoCircle2} />
+        {/* ── Brand Header ── */}
+        <Animated.View style={[s.brand, { opacity: fadeAnim }]}>
+          <Logo3D size={160} pointCount={250} signalCount={10} color="37, 99, 235" glow />
+          <Text style={s.brandName}>AgentCab</Text>
+          <Text style={s.brandSub}>{t.subtitle}</Text>
+        </Animated.View>
 
-          <Animated.View style={[s.brand, { opacity: fadeAnim }]}>
-            <Logo3D size={200} pointCount={250} signalCount={10} color="37, 99, 235" glow={false} />
-            <Text style={s.brandName}>AgentCab</Text>
-            <Text style={s.brandSub}>{t.subtitle}</Text>
-          </Animated.View>
+        {/* ── Form Card ── */}
+        <Animated.View style={[s.card, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
 
-          <Animated.View style={[s.card, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          {step === 'form' ? (
+            <>
+              {/* Tabs */}
+              <View style={s.tabWrap}>
+                <Animated.View style={[s.tabSlider, { transform: [{ translateX: indicatorX }] }]} />
+                <TouchableOpacity style={s.tab} onPress={() => setMode('login')} activeOpacity={0.7}>
+                  <Text style={[s.tabText, mode === 'login' && s.tabTextActive]}>{t.login}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.tab} onPress={() => setMode('register')} activeOpacity={0.7}>
+                  <Text style={[s.tabText, mode === 'register' && s.tabTextActive]}>{t.signUp}</Text>
+                </TouchableOpacity>
+              </View>
 
-            {step === 'form' ? (
-              <>
-                {/* Tabs */}
-                <View style={s.tabWrap}>
-                  <Animated.View style={[s.tabSlider, { transform: [{ translateX: indicatorX }] }]} />
-                  <TouchableOpacity style={s.tab} onPress={() => setMode('login')} activeOpacity={0.7}>
-                    <Text style={[s.tabText, mode === 'login' && s.tabTextActive]}>{t.login}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={s.tab} onPress={() => setMode('register')} activeOpacity={0.7}>
-                    <Text style={[s.tabText, mode === 'register' && s.tabTextActive]}>{t.signUp}</Text>
-                  </TouchableOpacity>
-                </View>
+              {/* Name (register) */}
+              {mode === 'register' && (
+                <TextInput style={s.input} placeholder={t.namePlaceholder} placeholderTextColor={colors.ink500}
+                  value={name} onChangeText={setName} autoCapitalize="words" />
+              )}
 
-                {/* Name (register) */}
-                {mode === 'register' && (
-                  <TextInput style={s.input} placeholder={t.namePlaceholder} placeholderTextColor="#94a3b8"
-                    value={name} onChangeText={setName} autoCapitalize="words" />
-                )}
+              {/* Account */}
+              <TextInput style={s.input}
+                placeholder={t.phoneOrEmail}
+                placeholderTextColor={colors.ink500}
+                value={account} onChangeText={setAccount}
+                autoCapitalize="none" keyboardType="email-address" />
 
-                {/* Account */}
+              {/* Password */}
+              <TextInput style={s.input} placeholder={t.passwordPlaceholder} placeholderTextColor={colors.ink500}
+                value={password} onChangeText={setPassword} secureTextEntry />
+
+              {/* Confirm password (register) */}
+              {mode === 'register' && (
                 <TextInput style={s.input}
-                  placeholder={t.phoneOrEmail}
-                  placeholderTextColor="#94a3b8"
-                  value={account} onChangeText={setAccount}
-                  autoCapitalize="none" keyboardType="email-address" />
+                  placeholder={t.confirmPassword}
+                  placeholderTextColor={colors.ink500}
+                  value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
+              )}
 
-                {/* Password */}
-                <TextInput style={s.input} placeholder={t.passwordPlaceholder} placeholderTextColor="#94a3b8"
-                  value={password} onChangeText={setPassword} secureTextEntry />
-
-                {/* Confirm password (register) */}
-                {mode === 'register' && (
-                  <TextInput style={s.input}
-                    placeholder={t.confirmPassword}
-                    placeholderTextColor="#94a3b8"
-                    value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
-                )}
-
-                {/* Submit */}
-                <TouchableOpacity style={[s.btnWrap, loading && { opacity: 0.6 }]}
-                  onPress={handleFormSubmit} disabled={loading} activeOpacity={0.85}>
-                  <LinearGradient colors={['#2563eb', '#1d4ed8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.btn}>
+              {/* Submit */}
+              <View style={[s.btnShadow, loading && { opacity: 0.6 }]}>
+              <TouchableOpacity style={s.btnWrap}
+                onPress={handleFormSubmit} disabled={loading} activeOpacity={0.85}>
+                <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.btn}>
+                  <View style={s.btnInner}>
                     {loading ? <ActivityIndicator color="#fff" /> : (
                       <Text style={s.btnText}>
                         {mode === 'login' ? t.login : (isPhone(account) ? t.nextStep : t.createAccount)}
                       </Text>
                     )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                {/* Verify SMS Code */}
-                <Text style={s.verifyTitle}>{t.enterVerificationCode}</Text>
-                <Text style={s.verifyDesc}>
-                  {t.codeSentTo.replace('{0}', account)}
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              {/* Verify SMS Code */}
+              <Text style={s.verifyTitle}>{t.enterVerificationCode}</Text>
+              <Text style={s.verifyDesc}>
+                {t.codeSentTo.replace('{0}', account)}
+              </Text>
+
+              <TextInput style={s.codeInput}
+                placeholder="000000"
+                placeholderTextColor={colors.ink400}
+                value={smsCode} onChangeText={setSmsCode}
+                keyboardType="number-pad" maxLength={6}
+                autoFocus textAlign="center" />
+
+              <TouchableOpacity
+                style={[s.resendBtn, (countdown > 0 || sendingCode) && { opacity: 0.5 }]}
+                onPress={handleSendCode}
+                disabled={countdown > 0 || sendingCode}>
+                <Text style={s.resendText}>
+                  {countdown > 0 ? `${countdown}s` : t.resend}
                 </Text>
+              </TouchableOpacity>
 
-                <TextInput style={s.codeInput}
-                  placeholder="000000"
-                  placeholderTextColor="#cbd5e1"
-                  value={smsCode} onChangeText={setSmsCode}
-                  keyboardType="number-pad" maxLength={6}
-                  autoFocus textAlign="center" />
-
-                <TouchableOpacity
-                  style={[s.resendBtn, (countdown > 0 || sendingCode) && { opacity: 0.5 }]}
-                  onPress={handleSendCode}
-                  disabled={countdown > 0 || sendingCode}>
-                  <Text style={s.resendText}>
-                    {countdown > 0 ? `${countdown}s` : t.resend}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[s.btnWrap, loading && { opacity: 0.6 }]}
-                  onPress={handleVerifySubmit} disabled={loading} activeOpacity={0.85}>
-                  <LinearGradient colors={['#2563eb', '#1d4ed8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.btn}>
+              <View style={[s.btnShadow, loading && { opacity: 0.6 }]}>
+              <TouchableOpacity style={s.btnWrap}
+                onPress={handleVerifySubmit} disabled={loading} activeOpacity={0.85}>
+                <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.btn}>
+                  <View style={s.btnInner}>
                     {loading ? <ActivityIndicator color="#fff" /> : (
                       <Text style={s.btnText}>{t.createAccount}</Text>
                     )}
-                  </LinearGradient>
-                </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+              </View>
 
-                <TouchableOpacity style={s.backBtn} onPress={() => setStep('form')}>
-                  <Text style={s.backText}>← {t.back}</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </Animated.View>
+              <TouchableOpacity style={s.backBtn} onPress={() => setStep('form')}>
+                <Text style={s.backText}>{'\u2190'} {t.back}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </Animated.View>
 
-        </ScrollView>
-      </View>
-    </LinearGradient>
+      </ScrollView>
+    </View>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1 },
-  flex: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  container: { flex: 1, backgroundColor: colors.sand50 },
+  scrollContent: { flexGrow: 1 },
 
-  decoCircle1: {
-    position: 'absolute', top: -80, right: -60,
-    width: 240, height: 240, borderRadius: 120,
-    backgroundColor: 'rgba(37, 99, 235, 0.04)',
+  // ── Hero ──
+  hero: {
+    paddingTop: 64,
+    paddingBottom: 48,
+    alignItems: 'center',
+    borderBottomLeftRadius: radii.xxl,
+    borderBottomRightRadius: radii.xxl,
+    overflow: 'hidden',
   },
-  decoCircle2: {
-    position: 'absolute', bottom: -40, left: -50,
-    width: 180, height: 180, borderRadius: 90,
-    backgroundColor: 'rgba(37, 99, 235, 0.03)',
+  heroGlow: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    top: 20,
+    alignSelf: 'center',
+  },
+  brand: { alignItems: 'center', zIndex: 1, paddingTop: 60, paddingBottom: 20 },
+  brandName: {
+    fontSize: 32,
+    fontWeight: fontWeight.extrabold,
+    color: colors.ink950,
+    letterSpacing: -1,
+    marginTop: 4,
+  },
+  brandSub: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.regular,
+    color: colors.ink500,
+    marginTop: 4,
   },
 
-  brand: { alignItems: 'center', marginBottom: 28 },
-  brandName: { fontSize: 28, fontWeight: '800', color: '#0f172a', letterSpacing: -1 },
-  brandSub: { fontSize: 13, color: '#64748b', marginTop: 2 },
-
+  // ── Card ──
   card: {
-    backgroundColor: '#ffffff', borderRadius: 20, padding: 24,
-    borderWidth: 1, borderColor: 'rgba(37, 99, 235, 0.08)',
-    shadowColor: 'rgba(37, 99, 235, 0.08)',
-    shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 24, elevation: 4,
+    backgroundColor: colors.white,
+    borderRadius: radii.xl,
+    padding: spacing.lg,
+    marginHorizontal: spacing.lg,
+    marginTop: 16,
+    ...shadows.lg,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
 
+  // ── Tabs ──
   tabWrap: {
-    flexDirection: 'row', backgroundColor: '#f1f5f9',
-    borderRadius: 12, padding: 3, marginBottom: 20, position: 'relative',
+    flexDirection: 'row',
+    backgroundColor: colors.sand100,
+    borderRadius: radii.md,
+    padding: 3,
+    marginBottom: 20,
+    position: 'relative',
   },
   tabSlider: {
     position: 'absolute', top: 3, left: 3,
     width: '50%', height: '100%',
-    backgroundColor: '#fff', borderRadius: 10,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    ...shadows.sm,
   },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', zIndex: 1 },
-  tabText: { fontSize: 14, fontWeight: '600', color: '#94a3b8' },
-  tabTextActive: { color: '#2563eb' },
+  tabText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.ink500 },
+  tabTextActive: { color: colors.primary },
 
+  // ── Inputs ──
   input: {
-    backgroundColor: '#f8fafc', borderRadius: 12,
-    padding: 14, fontSize: 15, color: '#0f172a',
-    borderWidth: 1.5, borderColor: 'rgba(37, 99, 235, 0.1)',
+    backgroundColor: colors.sand50,
+    borderRadius: radii.md,
+    padding: 14,
+    fontSize: 15,
+    color: colors.ink950,
+    borderWidth: 1.5,
+    borderColor: colors.border,
     marginBottom: 14,
   },
 
-  btnWrap: { borderRadius: 12, overflow: 'hidden', marginTop: 4 },
-  btn: { paddingVertical: 15, alignItems: 'center', borderRadius: 12 },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  // ── CTA Button ──
+  btnShadow: {
+    borderRadius: radii.md,
+    marginTop: spacing.xs,
+    ...shadows.glow,
+  },
+  btnWrap: {
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
+  btn: { borderRadius: radii.md },
+  btnInner: { paddingVertical: 15, alignItems: 'center' },
+  btnText: { color: colors.white, fontSize: 15, fontWeight: fontWeight.bold },
 
-  // Verify step
+  // ── Verify step ──
   verifyTitle: {
-    fontSize: 20, fontWeight: '700', color: '#0f172a', textAlign: 'center', marginBottom: 8,
+    fontSize: 20,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   verifyDesc: {
-    fontSize: 14, color: '#64748b', textAlign: 'center', marginBottom: 24,
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
   },
   codeInput: {
-    backgroundColor: '#f8fafc', borderRadius: 12,
-    padding: 16, fontSize: 28, fontWeight: '700', color: '#0f172a',
-    borderWidth: 1.5, borderColor: 'rgba(37, 99, 235, 0.15)',
-    marginBottom: 14, letterSpacing: 8,
+    backgroundColor: colors.sand50,
+    borderRadius: radii.md,
+    padding: 16,
+    fontSize: 28,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    borderWidth: 1.5,
+    borderColor: 'rgba(37, 99, 235, 0.15)',
+    marginBottom: 14,
+    letterSpacing: 8,
   },
   resendBtn: {
-    alignItems: 'center', marginBottom: 16,
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
   resendText: {
-    fontSize: 14, color: '#2563eb', fontWeight: '600',
+    fontSize: fontSize.sm,
+    color: colors.primary,
+    fontWeight: fontWeight.semibold,
   },
   backBtn: {
-    alignItems: 'center', marginTop: 14,
+    alignItems: 'center',
+    marginTop: 14,
   },
   backText: {
-    fontSize: 14, color: '#64748b',
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
   },
 })

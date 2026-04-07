@@ -54,6 +54,7 @@ export default function AppModal({ visible, title, message, buttons, onDismiss }
                     isCancel && s.btnTextCancel,
                     isPrimary && s.btnTextPrimary,
                     isDestructive && s.btnTextDestructive,
+                    btns.length === 1 && s.btnTextPrimary,
                   ]}>{btn.text}</Text>
                 </TouchableOpacity>
               )

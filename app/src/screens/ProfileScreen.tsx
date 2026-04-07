@@ -16,7 +16,8 @@ import {
 import { showModal } from '../components/AppModal'
 import LinearGradient from 'react-native-linear-gradient'
 import Icon from 'react-native-vector-icons/Feather'
-import { colors, fontWeight } from '../utils/theme'
+import { colors, fontWeight, shadows, spacing, radii, fontSize as fs } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { fetchWallet, resetApiKey, fetchMySkills, updateProfile, uploadAvatar, SITE_URL, type Skill } from '../services/api'
@@ -24,6 +25,7 @@ import ImageCropPicker from 'react-native-image-crop-picker'
 import { useCachedData } from '../hooks/useCachedData'
 
 export default function ProfileScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets()
   const { user, logout, refreshUser } = useAuth()
   const { t, lang, setLang } = useI18n()
   const [apiKey, setApiKey] = useState<string | null>(null)
@@ -177,32 +179,51 @@ export default function ProfileScreen({ navigation }: any) {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
 
-      {/* ── Identity ── */}
-      <View style={s.identityRow}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={s.avatarImg} />
-        ) : (
-          <LinearGradient
-            colors={['#2563eb', '#1e40af']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.avatar}>
-            <Text style={s.avatarLetter}>{user?.name?.[0]?.toUpperCase() || '?'}</Text>
-          </LinearGradient>
-        )}
-        <View style={s.identityInfo}>
-          <Text style={s.userName}>{user?.name}</Text>
-          {user?.bio ? <Text style={s.userBio} numberOfLines={2}>{user.bio}</Text> : null}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-            <View style={s.roleBadge}>
-              <Text style={s.roleText}>{user?.role?.toUpperCase() || 'CALLER'}</Text>
+      {/* ── Hero Profile Header ── */}
+      <LinearGradient colors={['#0f172a', '#1e293b']} style={s.heroHeader}>
+        <View style={[s.heroRow, { marginTop: insets.top }]}>
+          <View style={s.avatarWrapper}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={s.avatarImg} />
+            ) : (
+              <View style={s.avatar}>
+                <Text style={s.avatarLetter}>{user?.name?.[0]?.toUpperCase() || '?'}</Text>
+              </View>
+            )}
+          </View>
+          <View style={s.heroInfo}>
+            <Text style={s.heroName}>{user?.name}</Text>
+            <View style={s.heroMeta}>
+              <View style={s.roleBadge}>
+                <Text style={s.roleText}>{user?.role?.toUpperCase() || 'CALLER'}</Text>
+              </View>
+              {memberSince ? <Text style={s.heroJoined}>{memberSince}</Text> : null}
             </View>
-            <TouchableOpacity onPress={startEditProfile}>
-              <Text style={s.editLink}>{lang === 'zh' ? '编辑资料' : 'Edit Profile'}</Text>
-            </TouchableOpacity>
+          </View>
+          <TouchableOpacity onPress={startEditProfile} style={s.heroEditBtn} activeOpacity={0.7}>
+            <Icon name="edit-2" size={16} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+        </View>
+        {user?.bio ? <Text style={s.heroBio} numberOfLines={2}>{user.bio}</Text> : null}
+
+        {/* Stats inline */}
+        <View style={s.heroStats}>
+          <View style={s.heroStatItem}>
+            <Text style={s.heroStatValue}>{wallet?.credits != null ? Number(wallet.credits).toLocaleString() : '—'}</Text>
+            <Text style={s.heroStatLabel}>{t.balance}</Text>
+          </View>
+          <View style={s.heroStatDivider} />
+          <View style={s.heroStatItem}>
+            <Text style={s.heroStatValue}>{Number(user?.total_credits_spent || 0).toLocaleString()}</Text>
+            <Text style={s.heroStatLabel}>{t.spent}</Text>
+          </View>
+          <View style={s.heroStatDivider} />
+          <View style={s.heroStatItem}>
+            <Text style={s.heroStatValue}>{Number(user?.total_credits_earned || 0).toLocaleString()}</Text>
+            <Text style={s.heroStatLabel}>{t.earned}</Text>
           </View>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* ── Social Links ── */}
       {(user?.website || user?.twitter || user?.github || user?.linkedin || user?.wechat_official || user?.youtube || user?.bilibili) ? (
@@ -217,177 +238,131 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
       ) : null}
 
-      {/* Edit Profile Modal is rendered outside ScrollView */}
-
-      {/* ── Info Card ── */}
-      <View style={s.card}>
-        <InfoRow label={t.name} value={user?.name || ''} />
-        <View style={s.divider} />
+      {/* ── All settings in one card ── */}
+      <View style={s.menuCardShadow}>
+      <View style={s.menuCard}>
+        {/* Account info */}
         {user?.email ? (
           <>
-            <InfoRow label={t.email} value={user.email} />
-            <View style={s.divider} />
+            <View style={s.menuRow}>
+              <Icon name="mail" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Text style={s.menuLabel}>{user.email}</Text>
+              {user?.email_verified ? (
+                <View style={s.verifyBadgeOk}><Text style={s.verifyTextOk}>✓</Text></View>
+              ) : null}
+            </View>
+            <View style={s.menuDivider} />
           </>
         ) : null}
         {user?.phone ? (
           <>
-            <InfoRow label={lang === 'zh' ? '手机号' : 'Phone'} value={user.phone} />
-            <View style={s.divider} />
+            <View style={s.menuRow}>
+              <Icon name="phone" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Text style={s.menuLabel}>{user.phone}</Text>
+            </View>
+            <View style={s.menuDivider} />
           </>
         ) : null}
-        <InfoRow label={t.role} value={user?.role || 'caller'} />
-        <View style={s.divider} />
-        <InfoRow label={t.joined} value={memberSince} />
-      </View>
 
-      {/* ── Stats ── */}
-      <View style={s.statsCard}>
-        <StatItem label={t.balance} value={wallet?.credits != null ? Number(wallet.credits).toLocaleString() : '—'} highlight />
-        <View style={s.statDivider} />
-        <StatItem label={t.spent} value={Number(user?.total_credits_spent || 0).toLocaleString()} />
-        <View style={s.statDivider} />
-        <StatItem label={t.earned} value={Number(user?.total_credits_earned || 0).toLocaleString()} />
-      </View>
-
-      {/* ── Recharge / Withdraw ── */}
-      <View style={s.actionRow}>
-        <TouchableOpacity
-          style={s.actionBtn}
-          onPress={() => navigation.navigate('Wallet')}
-          activeOpacity={0.7}>
-          <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.actionBtnGradient}>
-            <Text style={s.actionBtnText}>{t.recharge}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.actionBtnOutline}
-          onPress={() => navigation.navigate('Wallet')}
-          activeOpacity={0.7}>
-          <Text style={s.actionBtnOutlineText}>{t.withdraw}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── My Clones ── */}
-      {nonDeletedApis.length > 0 && (
-        <View style={s.card}>
-          <TouchableOpacity style={s.myApiHeader} onPress={() => setApisExpanded(!apisExpanded)} activeOpacity={0.7}>
-            <Text style={s.myApiTitle}>{t.myApis} ({nonDeletedApis.length})</Text>
-            <Text style={s.expandArrow}>{apisExpanded ? '▲' : '▼'}</Text>
+        {/* Wallet */}
+        <View style={s.walletRow}>
+          <TouchableOpacity style={s.walletBtn} onPress={() => navigation.navigate('Wallet')} activeOpacity={0.7}>
+            <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.walletBtnGradient}>
+              <View style={s.walletBtnInner}>
+                <Icon name="plus" size={14} color="#fff" />
+                <Text style={s.walletBtnText}>{t.recharge}</Text>
+              </View>
+            </LinearGradient>
           </TouchableOpacity>
-          {apisExpanded && filterOptions.length > 2 && (
-            <View style={s.apiFilterRow}>
-              {filterOptions.map(st => {
-                const count = st === 'all' ? nonDeletedApis.length
-                  : st === 'private' ? nonDeletedApis.filter(a => a.visibility === 'private').length
-                  : nonDeletedApis.filter(a => a.status === st).length
-                return (
-                  <TouchableOpacity
-                    key={st}
-                    style={[s.apiFilterChip, apiFilter === st && s.apiFilterChipActive]}
-                    onPress={() => setApiFilter(st)}
-                    activeOpacity={0.7}>
-                    <Text style={[s.apiFilterText, apiFilter === st && s.apiFilterTextActive]}>
-                      {st === 'all' ? t.allFilter : st === 'published' || st === 'active' ? t.published : st === 'draft' ? t.draft : st === 'private' ? t.private : st} {count}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-          )}
-          {apisExpanded && filteredApis.map((api, i) => (
-            <TouchableOpacity
-              key={api.id}
-              style={[s.myApiRow, i < filteredApis.length - 1 && s.myApiRowBorder]}
-              onPress={() => navigation.navigate('SkillDetail', { skillId: api.id })}
-              activeOpacity={0.6}>
-              <View style={s.myApiLeft}>
-                <Text style={s.myApiName} numberOfLines={1}>{api.name}</Text>
-                <Text style={s.myApiMeta}>{api.call_count} {t.calls} · {api.price_credits} {t.credits}</Text>
-              </View>
-              <View style={[s.myApiStatus, {
-                backgroundColor: api.status === 'published' || api.status === 'active' ? '#ecfdf5' : '#fffbeb',
-              }]}>
-                <Text style={[s.myApiStatusText, {
-                  color: api.status === 'published' || api.status === 'active' ? '#059669' : '#d97706',
-                }]}>
-                  {api.status === 'published' || api.status === 'active' ? t.published : api.status === 'draft' ? t.draft : api.status === 'private' ? t.private : api.status}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity style={s.walletBtnOutline} onPress={() => navigation.navigate('Wallet')} activeOpacity={0.7}>
+            <Icon name="arrow-up-right" size={14} color={colors.primary} />
+            <Text style={s.walletBtnOutlineText}>{t.withdraw}</Text>
+          </TouchableOpacity>
         </View>
-      )}
+        <View style={s.menuDivider} />
 
-      {/* ── Secret Key ── */}
-      <View style={s.card}>
-        <Text style={s.sectionLabel}>{t.apiKey}</Text>
-        {apiKey ? (
+        {/* My Clones */}
+        {nonDeletedApis.length > 0 && (
           <>
-            <View style={s.keyRow}>
-              <Text style={s.keyText} numberOfLines={1}>
-                {keyVisible ? apiKey : '••••••••••••••••••••••••'}
-              </Text>
-              <TouchableOpacity onPress={() => setKeyVisible(!keyVisible)} activeOpacity={0.6}>
-                <Text style={s.keyAction}>{keyVisible ? t.hide : t.show}</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={s.keyBtn} onPress={handleCopyKey} activeOpacity={0.7}>
-              <Text style={s.keyBtnText}>Copy</Text>
+            <TouchableOpacity style={s.menuRow} onPress={() => setApisExpanded(!apisExpanded)} activeOpacity={0.7}>
+              <Icon name="box" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Text style={s.menuLabel}>{t.myApis} ({nonDeletedApis.length})</Text>
+              <Icon name={apisExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.ink400} />
             </TouchableOpacity>
+            {apisExpanded && (
+              <>
+                {filterOptions.length > 2 && (
+                  <View style={s.apiFilterRow}>
+                    {filterOptions.map(st => {
+                      const count = st === 'all' ? nonDeletedApis.length
+                        : st === 'private' ? nonDeletedApis.filter(a => a.visibility === 'private').length
+                        : nonDeletedApis.filter(a => a.status === st).length
+                      return (
+                        <TouchableOpacity
+                          key={st}
+                          style={[s.apiFilterChip, apiFilter === st && s.apiFilterChipActive]}
+                          onPress={() => setApiFilter(st)}
+                          activeOpacity={0.7}>
+                          <Text style={[s.apiFilterText, apiFilter === st && s.apiFilterTextActive]}>
+                            {st === 'all' ? t.allFilter : st === 'published' || st === 'active' ? t.published : st === 'draft' ? t.draft : st === 'private' ? t.private : st} {count}
+                          </Text>
+                        </TouchableOpacity>
+                      )
+                    })}
+                  </View>
+                )}
+                {filteredApis.map((api, i) => (
+                  <TouchableOpacity
+                    key={api.id}
+                    style={[s.myApiRow, i < filteredApis.length - 1 && s.myApiRowBorder]}
+                    onPress={() => navigation.navigate('SkillDetail', { skillId: api.id })}
+                    activeOpacity={0.6}>
+                    <View style={s.myApiLeft}>
+                      <Text style={s.myApiName} numberOfLines={1}>{api.name}</Text>
+                      <Text style={s.myApiMeta}>{api.call_count} {t.calls} · {api.price_credits} {t.credits}</Text>
+                    </View>
+                    <View style={[s.myApiStatus, {
+                      backgroundColor: api.status === 'published' || api.status === 'active' ? '#ecfdf5' : '#fffbeb',
+                    }]}>
+                      <Text style={[s.myApiStatusText, {
+                        color: api.status === 'published' || api.status === 'active' ? '#059669' : '#d97706',
+                      }]}>
+                        {api.status === 'published' || api.status === 'active' ? t.published : api.status === 'draft' ? t.draft : api.status}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+            <View style={s.menuDivider} />
           </>
-        ) : (
-          <Text style={s.keyHint}>{t.apiKeyHidden}</Text>
         )}
-        <TouchableOpacity style={s.resetBtn} onPress={handleResetKey} activeOpacity={0.7}>
-          <Text style={s.resetBtnText}>{t.resetApiKey}</Text>
+
+        {/* Language */}
+        <TouchableOpacity style={s.menuRow} onPress={toggleLanguage} activeOpacity={0.6}>
+          <Icon name="globe" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+          <Text style={s.menuLabel}>{t.language}</Text>
+          <Text style={s.menuValue}>{t.languageName}</Text>
+        </TouchableOpacity>
+        <View style={s.menuDivider} />
+
+        {/* API Key */}
+        <TouchableOpacity style={s.menuRow} onPress={handleResetKey} activeOpacity={0.6}>
+          <Icon name="key" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+          <Text style={s.menuLabel}>{t.apiKey}</Text>
+          <Text style={{ fontSize: 12, color: colors.ink400 }}>{apiKey ? (keyVisible ? apiKey.slice(0, 12) + '...' : '••••••••') : lang === 'zh' ? '点击重置' : 'Tap to reset'}</Text>
+        </TouchableOpacity>
+        <View style={s.menuDivider} />
+
+        {/* Logout */}
+        <TouchableOpacity style={s.menuRow} onPress={handleLogout} activeOpacity={0.7}>
+          <Icon name="log-out" size={16} color={colors.error} style={{ marginRight: 14 }} />
+          <Text style={[s.menuLabel, { color: colors.error }]}>{t.logOut}</Text>
         </TouchableOpacity>
       </View>
-
-      {/* ── Security (only for email users) ── */}
-      {user?.email ? (
-        <View style={s.card}>
-          <Text style={s.sectionLabel}>{t.security}</Text>
-          <View style={s.securityRow}>
-            <Text style={s.securityLabel}>{t.email}</Text>
-            <View style={[s.verifyBadge, user?.email_verified && s.verifyBadgeOk]}>
-              <Text style={[s.verifyText, user?.email_verified && s.verifyTextOk]}>
-                {user?.email_verified ? t.emailVerified : t.emailNotVerified}
-              </Text>
-            </View>
-          </View>
-        </View>
-      ) : null}
-
-      {/* ── Automations ── */}
-      <View style={s.card}>
-        <TouchableOpacity style={s.langRow} onPress={() => navigation.navigate('Automations')} activeOpacity={0.6}>
-          <Text style={s.langLabel}>{t.automations}</Text>
-          <Text style={s.langValue}>→</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* ── Language ── */}
-      <View style={s.card}>
-        <TouchableOpacity style={s.langRow} onPress={toggleLanguage} activeOpacity={0.6}>
-          <Text style={s.langLabel}>{t.language}</Text>
-          <Text style={s.langValue}>{t.languageName} →</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Delete Account ── */}
-      <TouchableOpacity
-        style={s.deleteAccountBtn}
-        onPress={() => showModal(t.deleteAccount, t.deleteAccountMsg)}
-        activeOpacity={0.7}>
-        <Text style={s.deleteAccountText}>{t.deleteAccount}</Text>
-      </TouchableOpacity>
-
-      {/* ── Logout ── */}
-      <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-        <Text style={s.logoutText}>{t.logOut}</Text>
-      </TouchableOpacity>
-
-      <View style={{ height: 32 }} />
+      <View style={{ height: 40 }} />
     </ScrollView>
 
     {/* ── Edit Profile Modal ── */}
@@ -455,9 +430,10 @@ export default function ProfileScreen({ navigation }: any) {
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ icon, label, value }: { icon?: string; label: string; value: string }) {
   return (
     <View style={s.infoRow}>
+      {icon ? <Icon name={icon} size={15} color={colors.ink400} style={{ marginRight: 12 }} /> : null}
       <Text style={s.infoLabel}>{label}</Text>
       <Text style={s.infoValue}>{value}</Text>
     </View>
@@ -474,118 +450,159 @@ function StatItem({ label, value, highlight }: { label: string; value: string; h
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  content: { padding: 16, paddingTop: 24 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingTop: 0 },
 
-  // Identity
-  identityRow: {
+  // Hero profile header
+  heroHeader: {
+    marginBottom: spacing.md,
+    elevation: 12,
+  },
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
   },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    justifyContent: 'center',
-    alignItems: 'center',
+  avatarWrapper: {
     marginRight: 14,
   },
-  avatarImg: { width: 52, height: 52, borderRadius: 26, marginRight: 14 },
-  avatarLetter: { fontSize: 22, fontWeight: fontWeight.bold, color: '#fff' },
-  identityInfo: { flex: 1 },
-  userName: {
-    fontSize: 18,
-    fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    letterSpacing: -0.3,
-    marginBottom: 2,
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  userBio: { fontSize: 12, color: colors.ink600, lineHeight: 17, marginBottom: 4 },
-  editLink: { fontSize: 12, color: colors.primary, fontWeight: fontWeight.medium },
+  avatarImg: { width: 56, height: 56, borderRadius: 28, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)' },
+  avatarLetter: { fontSize: 22, fontWeight: fontWeight.bold, color: '#fff' },
+  heroInfo: { flex: 1 },
+  heroName: {
+    fontSize: 22,
+    fontWeight: fontWeight.extrabold,
+    color: '#fff',
+    letterSpacing: -0.5,
+  },
+  heroMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  heroJoined: { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
+  heroEditBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroBio: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 19, marginTop: 12, paddingHorizontal: 20 },
+  heroStats: {
+    flexDirection: 'row',
+    marginTop: 18,
+    paddingTop: 16,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  heroStatItem: { flex: 1, alignItems: 'center' },
+  heroStatValue: { fontSize: 20, fontWeight: fontWeight.bold, color: '#fff', letterSpacing: -0.5 },
+  heroStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: fontWeight.semibold, marginTop: 4, letterSpacing: 0.5, textTransform: 'uppercase' as any },
+  heroStatDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 2 },
   roleBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: '#eff6ff',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: radii.xs,
+    backgroundColor: 'rgba(37,99,235,0.3)',
   },
-  roleText: { fontSize: 10, fontWeight: fontWeight.semibold, color: '#2563eb', letterSpacing: 0.3 },
-  socialRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  socialBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  roleText: { fontSize: 10, fontWeight: fontWeight.bold, color: '#93c5fd', letterSpacing: 0.8 },
+  socialRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md, paddingHorizontal: spacing.lg },
+  socialBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radii.sm,
+    backgroundColor: colors.sand100,
+  },
   socialIcon: { fontSize: 13, color: colors.ink600, fontWeight: fontWeight.bold },
   socialText: { fontSize: 11, color: colors.ink600, fontWeight: fontWeight.medium },
 
   // Avatar upload
-  avatarUpload: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8, paddingVertical: 8 },
+  avatarUpload: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: spacing.sm, paddingVertical: spacing.sm },
   avatarUploadImg: { width: 56, height: 56, borderRadius: 28 },
   avatarUploadFallback: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.sand100, justifyContent: 'center', alignItems: 'center' },
-  avatarUploadText: { fontSize: 14, color: colors.primary, fontWeight: fontWeight.medium },
+  avatarUploadText: { fontSize: fs.sm, color: colors.primary, fontWeight: fontWeight.semibold },
 
-  // Profile edit
-  inputLabel: { fontSize: 12, color: colors.ink600, fontWeight: fontWeight.medium, marginBottom: 4, marginTop: 10 },
+  // Profile edit modal
+  inputLabel: { fontSize: fs.xs, color: colors.ink600, fontWeight: fontWeight.semibold, marginBottom: 5, marginTop: 12, letterSpacing: 0.2 },
   input: {
     borderWidth: 1,
     borderColor: colors.sand200,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderRadius: radii.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: fs.sm,
     color: colors.ink950,
     backgroundColor: colors.sand50,
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   modalSheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-    paddingTop: 12,
+    backgroundColor: colors.white,
+    borderTopLeftRadius: radii.xxl,
+    borderTopRightRadius: radii.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 36,
+    paddingTop: 14,
+    ...shadows.lg,
   },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.sand200, alignSelf: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 18, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: 4 },
-  cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: colors.sand100 },
-  cancelBtnText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink600 },
-  saveBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: colors.primary },
-  saveBtnText: { fontSize: 14, fontWeight: fontWeight.semibold, color: '#fff' },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.sand200, alignSelf: 'center', marginBottom: spacing.md },
+  modalTitle: { fontSize: fs.lg, fontWeight: fontWeight.bold, color: colors.ink950, marginBottom: spacing.xs, letterSpacing: -0.3 },
+  cancelBtn: { flex: 1, paddingVertical: 14, borderRadius: radii.md, alignItems: 'center', backgroundColor: colors.sand100 },
+  cancelBtnText: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.ink600 },
+  saveBtn: { flex: 1, paddingVertical: 14, borderRadius: radii.md, alignItems: 'center', backgroundColor: colors.primary },
+  saveBtnText: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: '#fff' },
 
-  // Card
+  // Card — shadow-based depth
+  cardShadow: {
+    borderRadius: radii.lg,
+    marginBottom: spacing.md,
+    marginHorizontal: spacing.lg,
+    ...shadows.sm,
+  },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    marginBottom: 12,
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
     padding: 0,
     overflow: 'hidden',
   },
-  divider: { height: 1, backgroundColor: 'rgba(37, 99, 235, 0.06)', marginLeft: 18 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: 20 },
 
   // Info rows
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
-  infoLabel: { fontSize: 14, color: colors.ink500, fontWeight: fontWeight.medium },
-  infoValue: { fontSize: 14, color: colors.ink950, fontWeight: fontWeight.semibold },
+  infoLabel: { fontSize: fs.sm, color: colors.ink500, fontWeight: fontWeight.medium },
+  infoValue: { fontSize: fs.sm, color: colors.ink950, fontWeight: fontWeight.semibold },
 
   // Stats
   statsCard: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    ...shadows.sm,
   },
   statItem: { flex: 1, alignItems: 'center' },
   statValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: fontWeight.extrabold,
     color: colors.ink950,
     letterSpacing: -0.5,
@@ -594,99 +611,108 @@ const s = StyleSheet.create({
     fontSize: 10,
     color: colors.ink500,
     fontWeight: fontWeight.semibold,
-    marginTop: 4,
+    marginTop: 6,
     letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
-  statDivider: { width: 1, backgroundColor: 'rgba(37, 99, 235, 0.08)', marginVertical: 2 },
+  statDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginVertical: 4 },
 
   // Action buttons
   actionRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  actionBtnShadow: {
+    flex: 1,
+    borderRadius: radii.md,
+    ...shadows.glow,
   },
   actionBtn: {
-    flex: 1,
-    borderRadius: 12,
+    borderRadius: radii.md,
     overflow: 'hidden',
   },
   actionBtnGradient: {
-    paddingVertical: 13,
+    paddingVertical: 14,
     alignItems: 'center',
-    borderRadius: 12,
+    justifyContent: 'center',
+    flexDirection: 'row',
+    borderRadius: radii.md,
   },
   actionBtnText: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
     color: '#fff',
+    letterSpacing: 0.2,
   },
   actionBtnOutline: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 13,
+    borderRadius: radii.md,
+    paddingVertical: 14,
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.2)',
+    backgroundColor: colors.white,
+    ...shadows.sm,
   },
   actionBtnOutlineText: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
-    color: '#2563eb',
+    color: colors.primary,
+    letterSpacing: 0.2,
   },
 
   // Secret Key
   sectionLabel: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
     color: colors.ink950,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 10,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 12,
+    letterSpacing: -0.2,
   },
   keyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    marginBottom: 10,
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
   keyText: {
     flex: 1,
     fontSize: 13,
     color: colors.ink700,
     fontFamily: 'monospace',
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: colors.sand50,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.sm,
     marginRight: 10,
     overflow: 'hidden',
   },
-  keyAction: { fontSize: 13, color: '#2563eb', fontWeight: fontWeight.semibold },
+  keyAction: { fontSize: 13, color: colors.primary, fontWeight: fontWeight.semibold },
   keyBtn: {
-    marginHorizontal: 18,
-    marginBottom: 10,
-    backgroundColor: '#eff6ff',
-    borderRadius: 8,
-    paddingVertical: 10,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: colors.primary50,
+    borderRadius: radii.sm,
+    paddingVertical: 11,
     alignItems: 'center',
   },
-  keyBtnText: { fontSize: 13, fontWeight: fontWeight.semibold, color: '#2563eb' },
+  keyBtnText: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.primary },
   keyHint: {
     fontSize: 13,
     color: colors.ink500,
-    paddingHorizontal: 18,
-    marginBottom: 12,
-    lineHeight: 18,
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    lineHeight: 19,
   },
   resetBtn: {
-    marginHorizontal: 18,
-    marginBottom: 16,
-    borderRadius: 8,
-    paddingVertical: 10,
+    marginHorizontal: 20,
+    marginBottom: 18,
+    borderRadius: radii.sm,
+    paddingVertical: 11,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.15)',
+    backgroundColor: colors.sand50,
   },
   resetBtnText: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.ink700 },
 
@@ -695,68 +721,108 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingBottom: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 18,
   },
-  securityLabel: { fontSize: 14, color: colors.ink700, fontWeight: fontWeight.medium },
+  securityLabel: { fontSize: fs.sm, color: colors.ink700, fontWeight: fontWeight.medium },
   verifyBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: radii.xs,
     backgroundColor: '#fef2f2',
   },
   verifyBadgeOk: { backgroundColor: '#ecfdf5' },
-  verifyText: { fontSize: 12, fontWeight: fontWeight.semibold, color: '#dc2626' },
+  verifyText: { fontSize: fs.xs, fontWeight: fontWeight.semibold, color: '#dc2626' },
   verifyTextOk: { color: '#059669' },
 
   // My Clones
-  apiFilterRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, paddingBottom: 10, flexWrap: 'wrap' },
-  apiFilterChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: '#f1f5f9' },
-  apiFilterChipActive: { backgroundColor: '#2563eb' },
+  apiFilterRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 20, paddingBottom: 12, flexWrap: 'wrap' },
+  apiFilterChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radii.pill, backgroundColor: colors.sand100 },
+  apiFilterChipActive: { backgroundColor: colors.primary },
   apiFilterText: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.ink600 },
   apiFilterTextActive: { color: '#fff' },
-  myApiHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 0 },
-  myApiTitle: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.ink950 },
+  myApiHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 0 },
+  myApiTitle: { fontSize: fs.sm, fontWeight: fontWeight.bold, color: colors.ink950 },
   expandArrow: { fontSize: 10, color: colors.ink500 },
-  myApiRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 14 },
-  myApiRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(37,99,235,0.06)' },
+  myApiRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15 },
+  myApiRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.sand200 },
   myApiLeft: { flex: 1, marginRight: 12 },
-  myApiName: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink950 },
-  myApiMeta: { fontSize: 12, color: colors.ink500, marginTop: 2 },
-  myApiStatus: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  myApiName: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.ink950 },
+  myApiMeta: { fontSize: fs.xs, color: colors.ink500, marginTop: 3 },
+  myApiStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.xs },
   myApiStatusText: { fontSize: 11, fontWeight: fontWeight.semibold },
 
-  // Language
-  langRow: {
+  // Menu items
+  menuCardShadow: {
+    borderRadius: radii.lg,
+    marginBottom: spacing.md,
+    marginHorizontal: spacing.lg,
+    ...shadows.sm,
+  },
+  menuCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+  },
+  menuRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 16,
   },
-  langLabel: { fontSize: 14, color: colors.ink700, fontWeight: fontWeight.medium },
-  langValue: { fontSize: 14, color: '#2563eb', fontWeight: fontWeight.semibold },
-
-  // Delete Account
-  deleteAccountBtn: {
-    borderRadius: 12,
-    paddingVertical: 14,
+  menuIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.sm,
+    backgroundColor: colors.primary50,
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.15)',
-    marginBottom: 10,
+    marginRight: 14,
   },
-  deleteAccountText: { fontSize: 14, fontWeight: fontWeight.semibold, color: colors.ink500 },
+  menuLabel: { flex: 1, fontSize: fs.sm, color: colors.ink800, fontWeight: fontWeight.medium },
+  menuValue: { fontSize: fs.sm, color: colors.primary, fontWeight: fontWeight.semibold },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: 50 },
 
-  // Logout
-  logoutBtn: {
-    borderRadius: 12,
+  // Wallet buttons
+  walletRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#fecaca',
   },
-  logoutText: { fontSize: 14, fontWeight: fontWeight.semibold, color: '#dc2626' },
+  walletBtn: {
+    flex: 1,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
+  walletBtnGradient: {
+    borderRadius: radii.md,
+  },
+  walletBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+  },
+  walletBtnText: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: '#fff',
+  },
+  walletBtnOutline: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary50,
+  },
+  walletBtnOutlineText: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
 })

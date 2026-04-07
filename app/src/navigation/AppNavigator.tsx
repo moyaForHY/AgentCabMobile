@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, View, Text, Pressable, StatusBar, Linking } from 'react-native'
+import { ActivityIndicator, View, Text, Pressable, Linking, TouchableOpacity } from 'react-native'
+import Icon from 'react-native-vector-icons/Feather'
 import { NavigationContainer } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { useAuth } from '../hooks/useAuth'
 import { useI18n } from '../i18n'
 import { colors, fontWeight as fw } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import TabIcon from '../components/TabIcon'
 import { navigationRef } from './navigationRef'
 import { storage } from '../services/storage'
@@ -26,8 +28,6 @@ import ProviderScreen from '../screens/ProviderScreen'
 const Stack = createNativeStackNavigator()
 const Tab = createBottomTabNavigator()
 
-const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
-
 const stackHeaderStyle = {
   backgroundColor: colors.white,
   shadowColor: 'rgba(37, 99, 235, 0.06)',
@@ -47,25 +47,27 @@ const stackHeaderTitleStyle = {
 function MainTabs() {
   const { user } = useAuth()
   const { t } = useI18n()
+  const insets = useSafeAreaInsets()
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         tabBarStyle: {
           backgroundColor: colors.white,
-          borderTopWidth: 0,
-          height: 60,
-          paddingBottom: 8,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          height: 68,
+          paddingBottom: 12,
           paddingTop: 6,
-          elevation: 12,
+          elevation: 8,
           shadowColor: '#1d4ed8',
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.06,
-          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
         },
         tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.ink400,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: fw.semibold, marginTop: 2 },
+        tabBarInactiveTintColor: colors.ink500,
+        tabBarLabelStyle: { fontSize: 10, fontWeight: fw.bold, marginTop: 2, letterSpacing: 0.1 },
         tabBarIcon: ({ focused, color }) => (
           <TabIcon name={route.name} focused={focused} color={color} />
         ),
@@ -83,7 +85,7 @@ function MainTabs() {
         options={{
           title: t.home,
           header: () => (
-            <View style={h.bar}>
+            <View style={[h.bar, { paddingTop: insets.top + 8 }]}>
               <Text style={h.greeting}>{t.hi}, {user?.name || 'there'}</Text>
             </View>
           ),
@@ -104,11 +106,7 @@ function MainTabs() {
         component={ProfileScreen}
         options={{
           title: t.me,
-          header: () => (
-            <View style={h.bar}>
-              <Text style={h.pageTitle}>{user?.name || t.me}</Text>
-            </View>
-          ),
+          headerShown: false,
         }}
       />
     </Tab.Navigator>
@@ -146,7 +144,7 @@ export default function AppNavigator() {
   const handleDeepLink = (url: string) => {
     const skillId = parseSkillId(url)
     if (skillId && navigationRef.current) {
-      navigationRef.current.navigate('SkillDetail' as never, { skillId } as never)
+      (navigationRef.current.navigate as any)('SkillDetail', { skillId })
     }
   }
 
@@ -167,7 +165,7 @@ export default function AppNavigator() {
     NativeModules.IntentModule?.getInitialIntent?.().then((extras: any) => {
       if (extras?.callId && extras?.navigate === 'TaskResult') {
         setTimeout(() => {
-          navigationRef.current?.navigate('TaskResult' as never, { taskId: extras.callId } as never)
+          (navigationRef.current?.navigate as any)?.('TaskResult', { taskId: extras.callId })
         }, 500)
       }
     }).catch(() => {})
@@ -185,7 +183,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef} linking={linking}>
-      <Stack.Navigator screenOptions={{ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle }}>
+      <Stack.Navigator screenOptions={({ navigation: nav }) => ({ headerShown: false, headerStyle: stackHeaderStyle, headerTitleStyle: stackHeaderTitleStyle, headerBackTitleVisible: false, headerLeft: nav.canGoBack() ? () => <TouchableOpacity onPress={() => nav.goBack()} style={{ paddingHorizontal: 8 }}><Icon name="arrow-left" size={22} color={colors.ink950} /></TouchableOpacity> : undefined, contentStyle: { backgroundColor: '#f8fafc' }, animation: 'ios_from_right' }) as any}>
         {!onboardingDone && (
           <Stack.Screen name="Onboarding">
             {(props: any) => <OnboardingScreen {...props} onDone={() => setOnboardingDone(true)} />}
@@ -194,12 +192,12 @@ export default function AppNavigator() {
         {isLoggedIn ? (
           <>
             <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="SkillDetail" component={SkillDetailScreen} options={{ headerShown: true, title: t.apiDetail }} />
-            <Stack.Screen name="TaskResult" component={TaskResultScreen} options={{ headerShown: true, title: t.result }} />
-            <Stack.Screen name="Wallet" component={WalletScreen} options={{ headerShown: true, title: t.wallet }} />
-            <Stack.Screen name="Automations" component={AutomationsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreateAutomation" component={CreateAutomationScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Provider" component={ProviderScreen} options={{ headerShown: true, title: '' }} />
+            <Stack.Screen name="SkillDetail" component={SkillDetailScreen} options={{ headerShown: false, headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="TaskResult" component={TaskResultScreen} options={{ headerShown: true, title: t.result, headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="Wallet" component={WalletScreen} options={{ headerShown: true, title: t.wallet, headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="Automations" component={AutomationsScreen} options={{ headerShown: false, headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="CreateAutomation" component={CreateAutomationScreen} options={{ headerShown: false, headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="Provider" component={ProviderScreen} options={{ headerShown: true, title: '', headerBackTitle: ' ' } as any} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
@@ -213,7 +211,6 @@ const h = {
   bar: {
     backgroundColor: colors.white,
     paddingHorizontal: 16,
-    paddingTop: STATUS_BAR_HEIGHT + 8,
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(37, 99, 235, 0.06)' as const,

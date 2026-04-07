@@ -1,6 +1,11 @@
 // AgentCab Design System — matching web frontend
 // Based on OpenClaw frontend CSS variables
 
+import { Platform, StatusBar } from 'react-native'
+
+// Android status bar height (iOS should use useSafeAreaInsets instead)
+export const STATUS_BAR_HEIGHT = StatusBar.currentHeight || 44
+
 export const colors = {
   // Primary Blue
   primary50: '#eff6ff',
@@ -25,6 +30,7 @@ export const colors = {
   ink600: '#64748b',
   ink500: '#94a3b8',
   ink400: '#cbd5e1',
+  ink300: '#e2e8f0',
 
   // Sand (backgrounds)
   sand50: '#f8fafc',
@@ -55,6 +61,7 @@ export const colors = {
 export const gradients = {
   primary: ['#2563eb', '#1d4ed8'] as [string, string],
   hero: ['#ffffff', '#f0f9ff'] as [string, string],
+  heroDark: ['#0f172a', '#1e293b'] as [string, string],
   page: ['#ffffff', '#f0f9ff', '#f8fafc'] as [string, string, string],
   card: ['rgba(255,255,255,0.95)', 'rgba(239,246,255,0.8)'] as [string, string],
 }

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { AppState } from 'react-native'
 import { getAccessToken, setAccessToken } from './storage'
 import { events } from './events'
 import { showModal } from '../components/AppModal'
@@ -57,6 +58,9 @@ api.interceptors.request.use(async config => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  // Auto-add lang parameter to all requests
+  const { getCurrentLang } = require('../i18n')
+  config.params = { ...config.params, lang: getCurrentLang() }
   return config
 })
 
@@ -99,9 +103,9 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status >= 500) {
-      // Show a global modal instead of relying on individual callers
+      // Show a global modal — only when app is in foreground
       const now = Date.now()
-      if (now - _lastServerErrorModal > 5000) {
+      if (now - _lastServerErrorModal > 5000 && AppState.currentState === 'active') {
         _lastServerErrorModal = now
         showModal('Server Error', 'Server error, please try again later.')
       }
@@ -109,17 +113,15 @@ api.interceptors.response.use(
     }
 
     if (!error.response) {
-      // Network-level failure — show banner
-      events.emit('network_error')
+      // Network-level failure — only emit when in foreground
+      if (AppState.currentState === 'active') {
+        events.emit('network_error')
+      }
 
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
         return Promise.reject(new Error('Request timeout. Please check your connection and try again.'))
       }
       return Promise.reject(new Error('Network error. Please check your connection.'))
-      if (!online) {
-        return Promise.reject(new Error('You appear to be offline. Please check your internet connection and try again.'))
-      }
-      return Promise.reject(new Error('Network error. Please check your internet connection.'))
     }
 
     if (error.response?.status === 400) {
@@ -447,9 +449,10 @@ export async function deleteReview(skillId: string) {
 }
 
 // Calls history
-export async function fetchCalls(page = 1, pageSize = 20, status?: string) {
+export async function fetchCalls(page = 1, pageSize = 20, status?: string, skillId?: string) {
   const params: any = { page, page_size: pageSize }
   if (status) params.status = status
+  if (skillId) params.skill_id = skillId
   const { data } = await api.get('/calls', { params })
   return data.data as {
     items: Array<{

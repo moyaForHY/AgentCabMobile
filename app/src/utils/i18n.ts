@@ -1,7 +1,7 @@
-import { NativeModules, Linking } from 'react-native'
+import { NativeModules, Linking, Platform } from 'react-native'
 
 // DeviceInfoManager exposes sync constants: locale, language, brand, manufacturer, miuiVersion
-const DeviceInfoManager = NativeModules.DeviceInfoManager
+const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
 const deviceConstants = DeviceInfoManager?.getConstants?.() || DeviceInfoManager || {}
 
 /** Open the OEM-specific app permission editor (direct to AgentCab's permissions page) */

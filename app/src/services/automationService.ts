@@ -24,7 +24,7 @@ const DANGEROUS_ACTIONS = new Set([
 async function pollForCompletion(callId: string, timeoutMs: number): Promise<any> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
-    await new Promise(r => setTimeout(r, 5000))
+    await new Promise<void>(r => setTimeout(r, 5000))
     try {
       const call = await fetchCall(callId)
       if (call.status === 'success' || call.status === 'completed' || call.status === 'failed') {

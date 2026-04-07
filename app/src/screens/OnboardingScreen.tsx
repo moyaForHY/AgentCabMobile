@@ -15,10 +15,9 @@ import {
 } from 'react-native'
 import { useI18n } from '../i18n'
 import { storage } from '../services/storage'
-import { colors, fontWeight as fw } from '../utils/theme'
+import { colors, fontWeight as fw, STATUS_BAR_HEIGHT } from '../utils/theme'
 
 const { width: W, height: H } = Dimensions.get('window')
-const SB = StatusBar.currentHeight || 44
 
 // ─── Illustrations (Gemini-generated images) ────────────────
 function IllustrationAct() {
@@ -569,7 +568,7 @@ const s = StyleSheet.create({
   },
   skipBtn: {
     position: 'absolute',
-    top: SB + 10,
+    top: STATUS_BAR_HEIGHT + 10,
     right: 20,
     zIndex: 10,
     paddingVertical: 6,

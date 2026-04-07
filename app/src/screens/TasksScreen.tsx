@@ -5,18 +5,20 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   RefreshControl,
   Animated,
   Easing,
-  StatusBar,
 } from 'react-native'
-import { colors, radii, spacing, fontSize, fontWeight } from '../utils/theme'
+import { colors, radii, spacing, fontSize, fontWeight, shadows, gradients } from '../utils/theme'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useI18n } from '../i18n'
 import { fetchCalls, getCached } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { events, EVENT_CALL_COMPLETED } from '../services/events'
 import Icon from 'react-native-vector-icons/Feather'
+import LinearGradient from 'react-native-linear-gradient'
 import { TaskCardSkeleton } from '../components/Skeleton'
 
 // ─── Status Pill ─────────────────────────────────────────────
@@ -47,7 +49,7 @@ function StatusIcon({ status }: { status: string }) {
   const isOk = status === 'success' || status === 'completed'
   return (
     <View style={[s.iconCircle, { backgroundColor: isOk ? '#ecfdf5' : '#fef2f2' }]}>
-      <Text style={[s.iconChar, { color: isOk ? '#059669' : '#dc2626' }]}>
+      <Text style={[s.iconChar, { color: isOk ? '#059669' : colors.danger }]}>
         {isOk ? '✓' : '✕'}
       </Text>
     </View>
@@ -63,19 +65,26 @@ function RunningIndicator() {
   }, [anim])
   const rotate = anim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })
   return (
-    <View style={[s.iconCircle, { backgroundColor: '#eff6ff' }]}>
-      <Animated.View style={{ width: 18, height: 18, transform: [{ rotate }] }}>
+    <View style={[s.iconCircle, { backgroundColor: colors.primary50 }]}>
+      <Animated.View style={{ width: 20, height: 20, transform: [{ rotate }] }}>
         <View style={{
-          width: 18,
-          height: 18,
-          borderRadius: 9,
+          width: 20,
+          height: 20,
+          borderRadius: 10,
           borderWidth: 2.5,
-          borderColor: '#bfdbfe',
-          borderTopColor: '#2563eb',
+          borderColor: colors.primary200,
+          borderTopColor: colors.primary,
         }} />
       </Animated.View>
     </View>
   )
+}
+
+// ─── Card accent color by status ────────────────────────────
+function getAccentColor(status: string): string {
+  if (status === 'success' || status === 'completed') return '#059669'
+  if (status === 'failed') return '#dc2626'
+  return '#2563eb'
 }
 
 // ─── Tasks Screen ────────────────────────────────────────────
@@ -83,7 +92,8 @@ const FILTERS = ['all', 'success', 'failed', 'pending'] as const
 type Filter = typeof FILTERS[number]
 
 export default function TasksScreen({ navigation }: any) {
-  const { t } = useI18n()
+  const insets = useSafeAreaInsets()
+  const { t, lang } = useI18n()
   const [filter, setFilter] = useState<Filter>('all')
   const [calls, setCalls] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -162,7 +172,10 @@ export default function TasksScreen({ navigation }: any) {
     setLoadingMore(false)
   }, [loadingMore, hasMore, page, loadPage])
 
-  const filtered = calls
+  const pendingStatuses = ['pending', 'processing', 'running']
+  const filtered = filter === 'pending'
+    ? calls.filter(c => pendingStatuses.includes(c.status))
+    : calls
   const counts = {
     all: stats.total,
     success: stats.success,
@@ -171,20 +184,17 @@ export default function TasksScreen({ navigation }: any) {
   }
 
   const renderCall = ({ item, index }: { item: any; index: number }) => (
-    <TouchableOpacity
-      style={s.card}
-      activeOpacity={0.7}
-      onPress={() => {
-        navigation.navigate('TaskResult', { taskId: item.id })
-      }}>
+    <Pressable
+      style={({ pressed }) => [s.card, { borderLeftWidth: 3, borderLeftColor: getAccentColor(item.status), backgroundColor: pressed ? '#f0f4f8' : '#fff' }]}
+      onPress={() => navigation.navigate('TaskResult', { taskId: item.id })}>
       {/* Top row: icon + name + status pill */}
       <View style={s.cardTop}>
         <StatusIcon status={item.status} />
         <View style={s.cardInfo}>
           <TouchableOpacity
             activeOpacity={0.6}
-            onPress={(e) => {
-              e.stopPropagation?.()
+            style={{ alignSelf: 'flex-start' }}
+            onPress={() => {
               if (item.skill_id) navigation.navigate('SkillDetail', { skillId: item.skill_id })
             }}>
             <Text style={[s.cardName, item.skill_id && s.cardNameLink]} numberOfLines={1}>{item.skill_name || t.unnamedSkill}</Text>
@@ -197,17 +207,26 @@ export default function TasksScreen({ navigation }: any) {
       {/* Bottom row: metadata */}
       <View style={s.cardBottom}>
         <View style={s.metaItem}>
-          <Text style={s.metaLabel}>{t.cost}</Text>
+          <View style={s.metaLabelRow}>
+            <Icon name="zap" size={11} color={colors.ink500} style={s.metaIcon} />
+            <Text style={s.metaLabel}>{t.cost}</Text>
+          </View>
           <Text style={s.metaValue}>{item.credits_cost}c</Text>
         </View>
         {item.duration_ms != null && (
           <View style={s.metaItem}>
-            <Text style={s.metaLabel}>{t.duration}</Text>
+            <View style={s.metaLabelRow}>
+              <Icon name="clock" size={11} color={colors.ink500} style={s.metaIcon} />
+              <Text style={s.metaLabel}>{t.duration}</Text>
+            </View>
             <Text style={s.metaValue}>{(item.duration_ms / 1000).toFixed(1)}s</Text>
           </View>
         )}
         <View style={[s.metaItem, { alignItems: 'flex-end' }]}>
-          <Text style={s.metaLabel}>{t.time}</Text>
+          <View style={[s.metaLabelRow, { justifyContent: 'flex-end' }]}>
+            <Icon name="calendar" size={11} color={colors.ink500} style={s.metaIcon} />
+            <Text style={s.metaLabel}>{t.time}</Text>
+          </View>
           <Text style={s.metaValue}>{formatTime(item.started_at, t)}</Text>
         </View>
       </View>
@@ -218,7 +237,7 @@ export default function TasksScreen({ navigation }: any) {
           <Text style={s.errorText} numberOfLines={2}>{item.error_message}</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </Pressable>
   )
 
   if (loading) {
@@ -232,22 +251,41 @@ export default function TasksScreen({ navigation }: any) {
   return (
     <View style={s.container}>
       {/* Nav header with filters */}
-      <View style={s.navHeader}>
+      <View style={[s.navHeader, { paddingTop: insets.top + 10 }]}>
         <View style={s.filterRow}>
-          {FILTERS.map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[s.filterChip, filter === f && s.filterChipActive]}
-              onPress={() => setFilter(f)}
-              activeOpacity={0.7}>
-              <Text style={[s.filterChipText, filter === f && s.filterChipTextActive]}>
-                {f === 'all' ? t.allFilter : f === 'success' ? t.success : f === 'failed' ? t.failed : t.pending}
-                {' '}{counts[f]}
+          {FILTERS.map(f => {
+            const isActive = filter === f
+            const label = (
+              <Text style={[s.filterChipText, isActive && s.filterChipTextActive]}>
+                {f === 'all' ? t.allFilter : f === 'success' ? t.success : f === 'failed' ? t.failed : (lang === 'zh' ? '等待中' : 'Waiting')}
               </Text>
-            </TouchableOpacity>
-          ))}
+            )
+            return (
+              <TouchableOpacity
+                key={f}
+                onPress={() => setFilter(f)}
+                activeOpacity={0.7}>
+                {isActive ? (
+                  <LinearGradient
+                    colors={gradients.primary}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[s.filterChipGradient, s.filterChipActive]}>
+                    <View style={s.filterChipInner}>
+                      {label}
+                    </View>
+                  </LinearGradient>
+                ) : (
+                  <View style={s.filterChip}>
+                    {label}
+                  </View>
+                )}
+              </TouchableOpacity>
+            )
+          })}
         </View>
       </View>
+
       <FlatList
         data={filtered}
         keyExtractor={item => item.id}
@@ -262,7 +300,7 @@ export default function TasksScreen({ navigation }: any) {
         ListEmptyComponent={
           <View style={s.empty}>
             <View style={s.emptyIcon}>
-              <Icon name="inbox" size={36} color={colors.ink300} />
+              <Icon name="inbox" size={48} color={colors.ink300} />
             </View>
             <Text style={s.emptyTitle}>{t.noCallsYet}</Text>
             <Text style={s.emptyHint}>{t.callAnApi}</Text>
@@ -289,49 +327,56 @@ function formatTime(isoStr: string, t: any): string {
 
 // ─── Styles ──────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list: { padding: 16, paddingTop: 8 },
+  list: { padding: spacing.md, paddingTop: spacing.sm },
 
   // Nav header
   navHeader: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: (StatusBar.currentHeight || 44) + 8,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(37, 99, 235, 0.06)',
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.md,
+    paddingBottom: 14,
+    ...shadows.sm,
   },
   filterRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: colors.sand100,
+  },
+  filterChipGradient: {
+    borderRadius: radii.pill,
+  },
+  filterChipInner: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
   },
   filterChipActive: {
-    backgroundColor: colors.primary,
+    ...shadows.glow,
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
   filterChipText: {
-    fontSize: 12,
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
     color: colors.ink600,
+    letterSpacing: 0.2,
   },
   filterChipTextActive: {
-    color: '#fff',
+    color: colors.white,
   },
 
   // Card
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    padding: spacing.md + 2,
+    marginBottom: spacing.sm + 4,
+    ...shadows.md,
   },
   cardTop: {
     flexDirection: 'row',
@@ -339,96 +384,165 @@ const s = StyleSheet.create({
   },
   cardInfo: {
     flex: 1,
-    marginLeft: 12,
-    marginRight: 8,
+    marginLeft: 14,
+    marginRight: spacing.sm,
   },
   cardName: {
-    fontSize: 14,
-    fontWeight: fontWeight.semibold,
+    fontSize: fontSize.sm + 1,
+    fontWeight: fontWeight.bold,
     color: colors.ink950,
+    letterSpacing: -0.2,
   },
   cardNameLink: {
-    color: '#2563eb',
+    color: colors.primary,
   },
   cardId: {
     fontSize: 11,
-    color: colors.ink400,
-    marginTop: 1,
+    color: colors.ink500,
+    marginTop: 3,
     fontFamily: 'monospace',
+    letterSpacing: 0.3,
   },
   cardBottom: {
     flexDirection: 'row',
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(37, 99, 235, 0.05)',
+    marginTop: spacing.md,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.sand200,
   },
   metaItem: { flex: 1 },
+  metaLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  metaIcon: {
+    marginRight: 3,
+  },
   metaLabel: {
     fontSize: 10,
-    color: colors.ink400,
-    fontWeight: fontWeight.medium,
+    color: colors.ink500,
+    fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
+    letterSpacing: 0.6,
   },
   metaValue: {
-    fontSize: 13,
+    fontSize: fontSize.sm,
     color: colors.ink800,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.bold,
   },
 
   // Error
   errorBar: {
-    marginTop: 10,
+    marginTop: spacing.sm + 4,
     backgroundColor: '#fef2f2',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm + 4,
+    paddingVertical: spacing.sm + 2,
   },
   errorText: {
-    fontSize: 12,
-    color: '#dc2626',
-    lineHeight: 16,
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    lineHeight: 17,
+    fontWeight: fontWeight.medium,
   },
 
   // Status Pill
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radii.pill,
     gap: 4,
   },
   statusPillIcon: { fontSize: 10, fontWeight: fontWeight.bold },
-  statusPillText: { fontSize: 11, fontWeight: fontWeight.semibold },
+  statusPillText: { fontSize: 11, fontWeight: fontWeight.bold, letterSpacing: 0.2 },
 
   // Status Icon
   iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: radii.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
   iconChar: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: fontWeight.bold,
     includeFontPadding: false,
     textAlign: 'center',
   },
 
+  // Stats summary bar
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm + 4,
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: colors.white,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm + 4,
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  statNumber: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: colors.ink500,
+    fontWeight: fontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+
   // Empty
-  empty: { alignItems: 'center', paddingVertical: 60 },
+  empty: { alignItems: 'center', paddingVertical: 80 },
   emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: '#eff6ff',
+    width: 88,
+    height: 88,
+    borderRadius: radii.xxl,
+    backgroundColor: colors.primary50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: spacing.lg,
+    ...shadows.sm,
   },
-  emptyTitle: { fontSize: 17, fontWeight: fontWeight.bold, color: colors.ink950 },
-  emptyHint: { fontSize: 13, color: colors.ink500, marginTop: 6 },
+  emptyTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.ink950,
+    letterSpacing: -0.3,
+  },
+  emptyHint: {
+    fontSize: fontSize.sm,
+    color: colors.ink500,
+    marginTop: spacing.sm,
+    lineHeight: 20,
+  },
+  emptyCta: {
+    marginTop: spacing.lg,
+  },
+  emptyCtaGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: radii.pill,
+    gap: 8,
+    ...shadows.glow,
+    shadowOpacity: 0.2,
+  },
+  emptyCtaText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.white,
+    letterSpacing: 0.2,
+  },
 })

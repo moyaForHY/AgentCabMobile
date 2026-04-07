@@ -1,5 +1,5 @@
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native'
-const { NotificationManager: NM } = NativeModules
+const NM = NativeModules.NotificationManager ?? null
 
 export async function requestNotificationPermission(): Promise<boolean> {
   if (Platform.OS === 'android' && (Platform.Version as number) >= 33) {
@@ -10,6 +10,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 }
 
 export async function showNotification(title: string, body: string, id = Date.now(), callId?: string): Promise<void> {
+  if (!NM) return
   if (callId && NM.showNotificationWithCallId) {
     await NM.showNotificationWithCallId(title, body, id % 100000, callId)
   } else {
@@ -18,5 +19,6 @@ export async function showNotification(title: string, body: string, id = Date.no
 }
 
 export async function cancelNotification(id: number): Promise<void> {
+  if (!NM) return
   await NM.cancelNotification(id)
 }

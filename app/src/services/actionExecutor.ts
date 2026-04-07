@@ -17,7 +17,7 @@ import { setWallpaper } from './screenshot'
 import { saveContact } from './contacts'
 import { actionStrings, permissionStrings, openPermissionEditor, isChinese } from '../utils/i18n'
 
-const { DeviceInfoManager } = NativeModules
+const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
 
 function guideToSettings(permKey: string) {
   const s = permissionStrings(permKey)
@@ -416,6 +416,7 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         return await confirm(
           t.setBrightness(action.level),
           async () => {
+            if (!DeviceInfoManager?.setBrightness) throw new Error('Not available on this platform')
             try {
               await DeviceInfoManager.setBrightness(action.level)
             } catch (e: any) {
@@ -437,7 +438,10 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
       case 'set_volume':
         return await confirm(
           t.setVolume(action.stream || 'media', action.level),
-          () => DeviceInfoManager.setVolume(action.stream || 'media', action.level),
+          async () => {
+            if (!DeviceInfoManager?.setVolume) throw new Error('Not available on this platform')
+            await DeviceInfoManager.setVolume(action.stream || 'media', action.level)
+          },
           action.type,
         )
 

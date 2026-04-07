@@ -2,22 +2,31 @@ import React, { useEffect, useState, useRef } from 'react'
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Platform,
 } from 'react-native'
-import { colors, fontWeight } from '../utils/theme'
+import Icon from 'react-native-vector-icons/Feather'
+import { colors, fontWeight, shadows, radii, spacing, fontSize as fs } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { isChinese } from '../utils/i18n'
-import { fetchCall, fetchSkillById } from '../services/api'
+import ScriptExecutor from '../components/ScriptExecutor'
+import { fetchCall, fetchSkillById, SITE_URL, api } from '../services/api'
+import { getAccessToken } from '../services/storage'
+import ReactNativeBlobUtil from 'react-native-blob-util'
 import { storage } from '../services/storage'
 import { writeClipboard, shareText } from '../services/deviceCapabilities'
 import { executeActions, type Action } from '../services/actionExecutor'
 import { batchDeletePhotos } from '../services/photoScanner'
 import { showModal } from '../components/AppModal'
 import DownloadButton from '../components/DownloadButton'
+import ImagePreview, { isImageFile, isPdfFile, isHtmlFile } from '../components/ImagePreview'
+import PdfPreview from '../components/PdfPreview'
+import { WebView } from 'react-native-webview'
+import { Modal } from 'react-native'
 import { SkeletonBox } from '../components/Skeleton'
 import ReviewInput from '../components/ReviewInput'
 
@@ -32,7 +41,7 @@ function formatEstimate(avg: string): string {
   return sec < 60 ? `${Math.round(sec)}s` : `${Math.round(sec / 60)}min`
 }
 
-export default function TaskResultScreen({ route }: any) {
+export default function TaskResultScreen({ route, navigation }: any) {
   const { t } = useI18n()
   const { taskId } = route.params
   const [call, setCall] = useState<any>(null)
@@ -110,14 +119,14 @@ export default function TaskResultScreen({ route }: any) {
 
   if (loading) {
     return (
-      <View style={[s.container, { padding: 16 }]}>
-        <SkeletonBox width={80} height={28} borderRadius={8} />
-        <View style={{ height: 12 }} />
-        <SkeletonBox width={'100%' as any} height={80} borderRadius={14} />
-        <View style={{ height: 12 }} />
-        <SkeletonBox width={'100%' as any} height={120} borderRadius={14} />
-        <View style={{ height: 12 }} />
-        <SkeletonBox width={'100%' as any} height={200} borderRadius={14} />
+      <View style={[s.container, { padding: spacing.lg }]}>
+        <SkeletonBox width={90} height={32} borderRadius={radii.pill} />
+        <View style={{ height: spacing.md }} />
+        <SkeletonBox width={'100%' as any} height={80} borderRadius={radii.lg} />
+        <View style={{ height: spacing.md }} />
+        <SkeletonBox width={'100%' as any} height={120} borderRadius={radii.lg} />
+        <View style={{ height: spacing.md }} />
+        <SkeletonBox width={'100%' as any} height={200} borderRadius={radii.lg} />
       </View>
     )
   }
@@ -162,11 +171,17 @@ export default function TaskResultScreen({ route }: any) {
 
       {/* Status badge */}
       <View style={[s.statusBadge, { backgroundColor: statusBg }]}>
+        <Icon
+          name={isOk ? 'check-circle' : isFailed ? 'x-circle' : 'loader'}
+          size={15}
+          color={statusColor}
+          style={{ marginRight: 6 }}
+        />
         <Text style={[s.statusText, { color: statusColor }]}>{statusLabel}</Text>
       </View>
 
       {/* Info card */}
-      <View style={s.card}>
+      <View style={s.cardShadow}><View style={s.card}>
         <InfoRow label={t.callId} value={call.id} mono />
         <View style={s.divider} />
         <InfoRow label={t.status} value={statusLabel} />
@@ -184,7 +199,7 @@ export default function TaskResultScreen({ route }: any) {
             <InfoRow label={t.time} value={new Date(call.started_at).toLocaleString('zh-CN')} />
           </>
         )}
-      </View>
+      </View></View>
 
       {/* Error */}
       {call.error_message && (
@@ -199,35 +214,34 @@ export default function TaskResultScreen({ route }: any) {
         <ActionsSection actions={output.actions} t={t} taskId={taskId} />
       )}
 
-      {/* Review — for completed tasks */}
-      {isOk && call.skill_id && (
-        <ReviewInput skillId={call.skill_id} />
+      {/* Re-run button */}
+      {call.skill_id && (
+        <TouchableOpacity
+          style={s.rerunButton}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('SkillDetail', { skillId: call.skill_id, autoUse: false, preInputValues: call.input_data })}>
+          <Icon name="refresh-cw" size={16} color={colors.primary} style={{ marginRight: 8 }} />
+          <Text style={s.rerunText}>{isChinese() ? '再次调用' : 'Re-run'}</Text>
+        </TouchableOpacity>
       )}
 
-      {/* Output Files */}
-      {outputFiles.length > 0 && (
-        <View style={s.card}>
-          <Text style={s.sectionTitle}>{t.outputFiles}</Text>
-          {outputFiles.map((file: any, idx: number) => {
-            const orig = file.filename || file.original_filename || 'file'
-            const ext = orig.includes('.') ? '.' + orig.split('.').pop() : ''
-            const shortId = (call.id || '').slice(0, 8)
-            const downloadName = `${shortId}_${idx}${ext}`
-            return (
-              <View key={file.id} style={s.fileRow}>
-                <View style={s.fileInfo}>
-                  <Text style={s.fileName} numberOfLines={1}>{downloadName}</Text>
-                  <Text style={s.fileMeta}>{file.mime_type}</Text>
-                </View>
-                <DownloadButton
-                  url={`https://www.agentcab.ai/v1/files/${file.id}`}
-                  filename={downloadName}
-                  mimeType={file.mime_type}
-                />
-              </View>
-            )
-          })}
-        </View>
+      {/* Script files — rendered separately, not inside card */}
+      {outputFiles.filter((f: any) => {
+        const name = f.filename || f.original_filename || ''
+        return name.endsWith('.acs') || f.mime_type === 'text/x-agentcab-script'
+      }).map((f: any) => (
+        <ScriptFileExecutor key={f.id} fileId={f.id} filename={f.filename || f.original_filename || 'script.acs'} />
+      ))}
+
+      {/* Output Files (non-script) */}
+      {outputFiles.filter((f: any) => {
+        const name = f.filename || f.original_filename || ''
+        return !name.endsWith('.acs') && f.mime_type !== 'text/x-agentcab-script'
+      }).length > 0 && (
+        <OutputFilesSection files={outputFiles.filter((f: any) => {
+          const name = f.filename || f.original_filename || ''
+          return !name.endsWith('.acs') && f.mime_type !== 'text/x-agentcab-script'
+        })} callId={call.id} />
       )}
 
       {/* Output Data — Beautified */}
@@ -257,7 +271,7 @@ export default function TaskResultScreen({ route }: any) {
 
       {/* Input Files */}
       {inputFiles.length > 0 && (
-        <View style={s.card}>
+        <View style={s.cardShadow}><View style={s.card}>
           <Text style={s.sectionTitle}>{t.inputFiles}</Text>
           {inputFiles.map((file: any) => (
             <View key={file.id} style={s.fileRow}>
@@ -267,7 +281,7 @@ export default function TaskResultScreen({ route }: any) {
               </View>
             </View>
           ))}
-        </View>
+        </View></View>
       )}
 
       {/* Input Data */}
@@ -277,8 +291,276 @@ export default function TaskResultScreen({ route }: any) {
         </CollapsibleSection>
       )}
 
-      <View style={{ height: 32 }} />
+      {/* Review — at the bottom */}
+      {isOk && call.skill_id && (
+        <ReviewInput skillId={call.skill_id} />
+      )}
+
+      <View style={{ height: spacing.xxl }} />
     </ScrollView>
+  )
+}
+
+function HtmlPreviewModal({ uri, filename, onClose }: { uri: string; filename: string; onClose: () => void }) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 48, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+          <TouchableOpacity onPress={onClose}><Icon name="x" size={24} color={colors.ink700} /></TouchableOpacity>
+          <Text style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '500', color: colors.ink950 }} numberOfLines={1}>{filename}</Text>
+        </View>
+        <WebView
+          source={{ uri }}
+          style={{ flex: 1 }}
+          originWhitelist={['*']}
+          allowFileAccess={true}
+          allowFileAccessFromFileURLs={true}
+          allowUniversalAccessFromFileURLs={true}
+        />
+        <TouchableOpacity
+          style={{ position: 'absolute', bottom: 32, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.5)' }}
+          activeOpacity={0.7}
+          onPress={async () => {
+            try {
+              const srcPath = uri.replace('file://', '')
+              const name = filename || 'document.html'
+              const destPath = `${ReactNativeBlobUtil.fs.dirs.DownloadDir}/${name}`
+              const base64 = await ReactNativeBlobUtil.fs.readFile(srcPath, 'base64')
+              await ReactNativeBlobUtil.fs.writeFile(destPath, base64, 'base64')
+              await ReactNativeBlobUtil.android.actionViewIntent(destPath, 'text/html')
+            } catch (e: any) {
+              showModal(isChinese() ? '打开失败' : 'Failed')
+            }
+          }}>
+          <Icon name="share" size={18} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>
+            {isChinese() ? '用其他应用打开' : 'Open with...'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  )
+}
+
+function ScriptFileExecutor({ fileId, filename }: { fileId: string; filename: string }) {
+  const [script, setScript] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const url = `${SITE_URL}/v1/files/${fileId}`
+        const token = await getAccessToken()
+        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        if (!res.ok) throw new Error(`${res.status}`)
+        const text = await res.text()
+        setScript(text)
+      } catch (e: any) {
+        setError(e.message)
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [fileId])
+
+  if (loading) {
+    return (
+      <View style={{ padding: 20, alignItems: 'center' }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    )
+  }
+
+  if (error || !script) {
+    return (
+      <View style={{ padding: 16 }}>
+        <Text style={{ color: colors.ink500, fontSize: 13 }}>{isChinese() ? '脚本加载失败' : 'Failed to load script'}: {error}</Text>
+      </View>
+    )
+  }
+
+  return <ScriptExecutor script={script} title={filename.replace('.acs', '')} />
+}
+
+function OutputFilesSection({ files, callId }: { files: any[]; callId: string }) {
+  const { t } = useI18n()
+  const [previewFile, setPreviewFile] = useState<{ uri: string; filename: string; mimeType: string; type: 'image' | 'pdf' | 'html' } | null>(null)
+  const [cachedImages, setCachedImages] = useState<Record<string, string>>({})
+  const [failedFiles, setFailedFiles] = useState<Set<string>>(new Set())
+
+  // Check file availability + cache previewable files (single pass)
+  React.useEffect(() => {
+    (async () => {
+      const token = await getAccessToken()
+      const failed = new Set<string>()
+      const cached: Record<string, string> = {}
+
+      for (const file of files) {
+        const orig = file.filename || file.original_filename || 'file'
+        const previewable = isImageFile(file.mime_type, orig) || isPdfFile(file.mime_type, orig) || isHtmlFile(file.mime_type, orig)
+
+        // Check expiry from expires_at field first
+        if (file.expires_at && new Date(file.expires_at).getTime() < Date.now()) {
+          failed.add(file.id)
+          continue
+        }
+
+        if (!previewable) continue
+
+        // Check local cache
+        const ext = (file.mime_type || '').split('/').pop() || orig.split('.').pop() || 'jpg'
+        const cachePath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/agentcab_${file.id}.${ext}`
+
+        try {
+          const exists = await ReactNativeBlobUtil.fs.exists(cachePath)
+          if (exists) {
+            const stat = await ReactNativeBlobUtil.fs.stat(cachePath)
+            if (Number(stat.size) > 1024) {
+              cached[file.id] = 'file://' + cachePath
+              continue
+            }
+            await ReactNativeBlobUtil.fs.unlink(cachePath).catch(() => {})
+          }
+
+          // Download
+          const res = await ReactNativeBlobUtil.config({ path: cachePath })
+            .fetch('GET', `${SITE_URL}/v1/files/${file.id}`, token ? { Authorization: `Bearer ${token}` } : {})
+
+          if (res.info().status === 200) {
+            cached[file.id] = 'file://' + res.path()
+          } else {
+            await ReactNativeBlobUtil.fs.unlink(cachePath).catch(() => {})
+            failed.add(file.id)
+          }
+        } catch {
+          failed.add(file.id)
+        }
+      }
+
+      if (Object.keys(cached).length > 0) setCachedImages(prev => ({ ...prev, ...cached }))
+      if (failed.size > 0) setFailedFiles(prev => { const s = new Set(prev); failed.forEach(id => s.add(id)); return s })
+    })()
+  }, [files])
+
+  const zh = isChinese()
+
+  const formatExpiry = (expiresAt: string) => {
+    if (!expiresAt) return ''
+    const remaining = new Date(expiresAt).getTime() - Date.now()
+    if (remaining <= 0) return zh ? '已过期' : 'Expired'
+    const hours = Math.floor(remaining / 3600000)
+    if (hours >= 24) return zh ? `${Math.floor(hours / 24)}天后过期` : `Expires in ${Math.floor(hours / 24)}d`
+    if (hours > 0) return zh ? `${hours}小时后过期` : `Expires in ${hours}h`
+    const mins = Math.floor(remaining / 60000)
+    return zh ? `${mins}分钟后过期` : `Expires in ${mins}m`
+  }
+
+  return (
+    <View style={s.cardShadow}><View style={s.card}>
+      <Text style={s.sectionTitle}>{t.outputFiles}</Text>
+      {files.map((file: any, idx: number) => {
+        const orig = file.filename || file.original_filename || 'file'
+        const ext = orig.includes('.') ? '.' + orig.split('.').pop() : ''
+        const shortId = (callId || '').slice(0, 8)
+        const downloadName = `${shortId}_${idx}${ext}`
+        const fileUrl = `${SITE_URL}/v1/files/${file.id}`
+        const isImage = isImageFile(file.mime_type, orig)
+        const isPdf = isPdfFile(file.mime_type, orig)
+        const isHtml = isHtmlFile(file.mime_type, orig)
+        const isScript = orig.endsWith('.acs') || file.mime_type === 'text/x-agentcab-script'
+        const canPreview = isImage || isPdf || isHtml
+        const cached = cachedImages[file.id]
+        const expiry = file.expires_at ? formatExpiry(file.expires_at) : ''
+
+        // Script file — render ScriptExecutor
+        if (isScript) {
+          return <ScriptFileExecutor key={file.id} fileId={file.id} filename={orig} />
+        }
+
+        return (
+          <View key={file.id}>
+            {canPreview ? (
+              <>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (!cached) return
+                  const type = isImage ? 'image' : isPdf ? 'pdf' : 'html'
+                  setPreviewFile({ uri: cached, filename: downloadName, mimeType: file.mime_type, type })
+                }}
+                style={s.thumbContainer}>
+                {cached ? (
+                  isImage ? (
+                    <>
+                    <Image source={{ uri: cached }} style={s.thumbImage} resizeMode="contain" />
+                    {expiry ? <Text style={{ fontSize: 11, color: colors.ink400, textAlign: 'center', paddingVertical: 4 }}>{expiry}</Text> : null}
+                    </>
+                  ) : (
+                    <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' }]}>
+                      <Icon name={isPdf ? 'file-text' : 'globe'} size={32} color={colors.ink400} />
+                      <Text style={{ color: colors.ink500, fontSize: 12, marginTop: 6 }}>{isPdf ? 'PDF' : 'HTML'}</Text>
+                      <Text style={{ color: colors.primary, fontSize: 12, marginTop: 2 }}>{isChinese() ? '点击预览' : 'Tap to preview'}</Text>
+                    </View>
+                  )
+                ) : failedFiles.has(file.id) ? (
+                  <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f8f8' }]}>
+                    <Icon name="alert-circle" size={24} color={colors.ink400} />
+                    <Text style={{ color: colors.ink400, fontSize: 12, marginTop: 4 }}>{zh ? '文件已过期' : 'File expired'}</Text>
+                  </View>
+                ) : (
+                  <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f1f5f9' }]}>
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                )}
+              </TouchableOpacity>
+              <View style={s.fileRow}>
+                <View style={s.fileInfo}>
+                  <Text style={s.fileName} numberOfLines={1}>{downloadName}</Text>
+                  <Text style={s.fileMeta}>{file.mime_type}{expiry ? ` · ${expiry}` : ''}</Text>
+                </View>
+              </View>
+              </>
+            ) : failedFiles.has(file.id) ? (
+              <View style={s.fileRow}>
+                <View style={s.fileInfo}>
+                  <Text style={[s.fileName, { color: colors.ink400 }]} numberOfLines={1}>{downloadName}</Text>
+                  <Text style={s.fileMeta}>{isChinese() ? '文件已过期' : 'File expired'}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={s.fileRow}>
+                <View style={s.fileInfo}>
+                  <Text style={s.fileName} numberOfLines={1}>{downloadName}</Text>
+                  <Text style={s.fileMeta}>{file.mime_type}{expiry ? ` · ${expiry}` : ''}</Text>
+                </View>
+                <DownloadButton url={fileUrl} filename={downloadName} mimeType={file.mime_type} />
+              </View>
+            )}
+          </View>
+        )
+      })}
+      {previewFile?.type === 'image' && (
+        <ImagePreview
+          visible
+          uri={previewFile.uri}
+          filename={previewFile.filename}
+          mimeType={previewFile.mimeType}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+      {previewFile?.type === 'pdf' && (
+        <PdfPreview
+          visible
+          uri={previewFile.uri}
+          filename={previewFile.filename}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+      {previewFile?.type === 'html' && (
+        <HtmlPreviewModal uri={previewFile.uri} filename={previewFile.filename} onClose={() => setPreviewFile(null)} />
+      )}
+    </View></View>
   )
 }
 
@@ -384,7 +666,7 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
   if (groups.length === 0) return null
 
   return (
-    <View style={s.card}>
+    <View style={s.cardShadow}><View style={s.card}>
       <Text style={s.sectionTitle}>{t.actionsLabel} ({groups.reduce((n, g) => n + g.actions.length, 0)})</Text>
       {groups.map((group, idx) => {
         const done = executedGroups.has(idx)
@@ -423,7 +705,7 @@ function ActionsSection({ actions, t, taskId }: { actions: Action[]; t: any; tas
           <Text style={s.allDoneText}>✓ {t.executed}</Text>
         </View>
       )}
-    </View>
+    </View></View>
   )
 }
 
@@ -446,7 +728,7 @@ function _LegacyActionsSection({ actions, t, taskId }: { actions: Action[]; t: a
     finally { setExecuting(false) }
   }
   return (
-    <View style={s.card}>
+    <View style={s.cardShadow}><View style={s.card}>
       <TouchableOpacity
         style={[s.executeBtn, (executing || executed) && s.executeBtnDone]}
         onPress={handleExecute}
@@ -458,7 +740,7 @@ function _LegacyActionsSection({ actions, t, taskId }: { actions: Action[]; t: a
           <Text style={s.executeBtnText}>{executed ? `✓ ${t.executed}` : t.executeAll}</Text>
         )}
       </TouchableOpacity>
-    </View>
+    </View></View>
   )
 }
 
@@ -502,7 +784,7 @@ function OutputBeautified({ output, t }: { output: any; t: any }) {
   if (!hasBeautified) return null
 
   return (
-    <View style={s.card}>
+    <View style={s.cardShadow}><View style={s.card}>
       <Text style={s.sectionTitle}>{t.output}</Text>
 
       {/* Summary message */}
@@ -550,7 +832,7 @@ function OutputBeautified({ output, t }: { output: any; t: any }) {
           ))}
         </View>
       )}
-    </View>
+    </View></View>
   )
 }
 
@@ -581,7 +863,7 @@ function CollapsibleSection({ title, right, children, defaultOpen = false }: {
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <View style={s.card}>
+    <View style={s.cardShadow}><View style={s.card}>
       <TouchableOpacity style={s.sectionHeader} onPress={() => setOpen(!open)} activeOpacity={0.6}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={s.collapseArrow}>{open ? '▾' : '▸'}</Text>
@@ -590,7 +872,7 @@ function CollapsibleSection({ title, right, children, defaultOpen = false }: {
         {open && right ? <View style={{ paddingTop: 14 }}>{right}</View> : null}
       </TouchableOpacity>
       {open && children}
-    </View>
+    </View></View>
   )
 }
 
@@ -604,69 +886,94 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  content: { padding: 16, paddingTop: 16 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, paddingTop: spacing.md },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  // Re-run button
+  rerunButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radii.lg,
+    paddingVertical: 12,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
+  rerunText: {
+    fontSize: fs.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+  },
 
   // Processing indicator
   processingCard: {
-    backgroundColor: '#eff6ff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    padding: 14,
-    marginBottom: 12,
+    backgroundColor: colors.primary50,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadows.md,
   },
   processingHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: spacing.xs,
   },
   processingTitle: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.semibold,
-    color: '#2563eb',
+    color: colors.primary,
+    letterSpacing: 0.1,
   },
   processingHint: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 26,
+    fontSize: fs.xs,
+    color: colors.ink600,
+    marginLeft: 28,
+    marginTop: 2,
   },
 
   // Status
   statusBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    marginBottom: spacing.lg,
   },
   statusText: {
-    fontSize: 13,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
+    letterSpacing: 0.2,
   },
 
   // Card
+  cardShadow: {
+    borderRadius: radii.lg,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.08)',
-    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     overflow: 'hidden',
   },
-  divider: { height: 1, backgroundColor: 'rgba(37, 99, 235, 0.06)', marginLeft: 16 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: spacing.md },
 
   // Info rows
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 15,
   },
-  infoLabel: { fontSize: 13, color: colors.ink500, fontWeight: fontWeight.medium },
-  infoValue: { fontSize: 13, color: colors.ink950, fontWeight: fontWeight.semibold, maxWidth: '60%', textAlign: 'right' },
+  infoLabel: { fontSize: fs.sm, color: colors.ink600, fontWeight: fontWeight.medium },
+  infoValue: { fontSize: fs.sm, color: colors.ink950, fontWeight: fontWeight.semibold, maxWidth: '60%', textAlign: 'right' },
   mono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11 },
 
   // Section
@@ -674,84 +981,86 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm + 2,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+    color: colors.ink800,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm + 2,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase' as const,
   },
   sectionTitleInline: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
-    color: colors.ink950,
+    color: colors.ink800,
+    letterSpacing: 0.2,
   },
   collapseArrow: {
     fontSize: 13,
     color: colors.ink400,
-    marginRight: 6,
+    marginRight: spacing.sm,
     width: 14,
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 14,
-    paddingTop: 14,
+    gap: spacing.md,
+    paddingTop: spacing.md,
   },
   actionText: {
-    fontSize: 13,
+    fontSize: fs.sm,
     fontWeight: fontWeight.semibold,
-    color: '#2563eb',
+    color: colors.primary,
   },
 
   // Error
   errorCard: {
     backgroundColor: '#fef2f2',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    marginBottom: 12,
+    borderRadius: radii.lg,
+    marginBottom: spacing.md,
+    ...shadows.sm,
   },
   errorMsg: {
-    fontSize: 13,
-    color: '#dc2626',
-    lineHeight: 18,
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    fontSize: fs.sm,
+    color: colors.error,
+    lineHeight: 20,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
-  errorText: { fontSize: 14, color: '#dc2626' },
+  errorText: { fontSize: fs.sm, color: colors.error },
 
   // Actions
   actionItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs + 2,
   },
   actionDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#2563eb',
+    backgroundColor: colors.primary,
     marginTop: 6,
-    marginRight: 10,
+    marginRight: spacing.sm + 2,
   },
   actionLabel: {
-    fontSize: 13,
+    fontSize: fs.sm,
     color: colors.ink700,
     flex: 1,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   actionGroup: {
-    marginHorizontal: 16,
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(37,99,235,0.06)',
-    paddingBottom: 10,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.sand200,
+    paddingBottom: spacing.sm + 2,
   },
   actionGroupHeader: {
     flexDirection: 'row',
@@ -759,200 +1068,220 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
   },
   actionGroupType: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.semibold,
     color: colors.ink950,
     marginBottom: 2,
   },
   actionGroupDetail: {
-    fontSize: 11,
+    fontSize: fs.xs,
     color: colors.ink500,
-    marginTop: 1,
+    marginTop: 2,
   },
   actionGroupBtn: {
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginLeft: 12,
+    backgroundColor: colors.primary,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    marginLeft: spacing.sm + 4,
+    ...shadows.sm,
   },
   actionGroupBtnDone: {
-    backgroundColor: '#059669',
+    backgroundColor: colors.success,
   },
   actionGroupBtnText: {
-    color: '#fff',
-    fontSize: 12,
+    color: colors.white,
+    fontSize: fs.xs,
     fontWeight: fontWeight.bold,
+    letterSpacing: 0.2,
   },
   allDoneBadge: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: spacing.sm + 4,
   },
   allDoneText: {
-    color: '#059669',
-    fontSize: 13,
+    color: colors.success,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
   },
   executeBtn: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 16,
-    backgroundColor: '#2563eb',
-    borderRadius: 10,
-    paddingVertical: 12,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm + 4,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    paddingVertical: 14,
     alignItems: 'center',
+    ...shadows.md,
   },
   executeBtnDone: {
-    backgroundColor: '#059669',
+    backgroundColor: colors.success,
   },
   executeBtnText: {
-    color: '#fff',
-    fontSize: 14,
+    color: colors.white,
+    fontSize: fs.md,
     fontWeight: fontWeight.bold,
+    letterSpacing: 0.2,
   },
 
   // Files
+  thumbContainer: {
+    margin: spacing.md,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+    backgroundColor: colors.sand100,
+  },
+  thumbImage: {
+    width: '100%',
+    height: 220,
+  },
   fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(37, 99, 235, 0.06)',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.sand200,
   },
-  fileInfo: { flex: 1, marginRight: 12 },
-  fileName: { fontSize: 13, fontWeight: fontWeight.semibold, color: colors.ink950 },
-  fileMeta: { fontSize: 11, color: colors.ink500, marginTop: 2 },
-  downloadBtn: { fontSize: 13, fontWeight: fontWeight.semibold, color: '#2563eb' },
+  fileInfo: { flex: 1, marginRight: spacing.sm + 4 },
+  fileName: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.ink950 },
+  fileMeta: { fontSize: fs.xs, color: colors.ink500, marginTop: 3 },
+  downloadBtn: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.primary },
 
   // Beautified output
   summaryBox: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: '#eff6ff',
-    borderRadius: 10,
-    padding: 14,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    backgroundColor: colors.primary50,
+    borderRadius: radii.md,
+    padding: spacing.md,
   },
   summaryText: {
     fontSize: 15,
-    fontWeight: fontWeight.semibold,
-    color: colors.ink950,
-    lineHeight: 22,
+    fontWeight: fontWeight.medium,
+    color: colors.ink900,
+    lineHeight: 23,
   },
   scoresRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    gap: spacing.sm + 4,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
   },
   scoreBadge: {
     flex: 1,
-    borderRadius: 10,
-    padding: 14,
+    borderRadius: radii.md,
+    padding: spacing.md,
     alignItems: 'center',
   },
   scoreBadgeLabel: {
     fontSize: 11,
-    fontWeight: fontWeight.semibold,
-    marginBottom: 4,
-    letterSpacing: 0.3,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.xs + 2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase' as const,
   },
   scoreBadgeValue: {
-    fontSize: 28,
-    fontWeight: fontWeight.extrabold,
-    letterSpacing: -0.5,
+    fontSize: 32,
+    fontWeight: fontWeight.black,
+    letterSpacing: -1,
   },
   sectionCard: {
-    marginHorizontal: 16,
-    marginBottom: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.06)',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm + 2,
+    backgroundColor: colors.sand50,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    ...shadows.sm,
   },
   sectionCardTitle: {
-    fontSize: 14,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
     color: colors.ink950,
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   sectionCardDesc: {
-    fontSize: 13,
+    fontSize: fs.sm,
     color: colors.ink700,
-    lineHeight: 19,
+    lineHeight: 21,
   },
   alertsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
   },
   alertsTitle: {
-    fontSize: 13,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    marginBottom: 8,
+    color: colors.ink800,
+    marginBottom: spacing.sm + 2,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase' as const,
   },
   alertItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: spacing.sm + 2,
+    backgroundColor: colors.sand50,
+    borderRadius: radii.sm,
+    padding: spacing.sm + 4,
   },
   alertDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     marginTop: 5,
-    marginRight: 10,
+    marginRight: spacing.sm + 2,
   },
   alertTitle: {
-    fontSize: 13,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
     marginBottom: 2,
   },
   alertMessage: {
-    fontSize: 13,
+    fontSize: fs.sm,
     color: colors.ink700,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   funFactsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
   },
   funFactsTitle: {
-    fontSize: 13,
+    fontSize: fs.sm,
     fontWeight: fontWeight.bold,
-    color: colors.ink950,
-    marginBottom: 8,
+    color: colors.ink800,
+    marginBottom: spacing.sm + 2,
+    letterSpacing: 0.2,
   },
   funFactRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 6,
+    marginBottom: spacing.sm,
   },
   funFactBullet: {
-    fontSize: 13,
-    color: colors.ink500,
+    fontSize: fs.sm,
+    color: colors.ink400,
   },
   funFactText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: fs.sm,
     color: colors.ink700,
-    lineHeight: 19,
+    lineHeight: 21,
   },
 
   // Code block
   codeBlock: {
-    backgroundColor: '#f1f5f9',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    padding: 12,
+    backgroundColor: colors.sand100,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: radii.sm,
+    padding: spacing.md,
   },
   codeText: {
-    fontSize: 12,
+    fontSize: fs.xs,
     color: colors.ink800,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    lineHeight: 18,
+    lineHeight: 19,
   },
 })

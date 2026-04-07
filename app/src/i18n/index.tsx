@@ -42,17 +42,25 @@ const I18nContext = createContext<I18nContextType>({
 })
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(getDeviceLanguage())
+  const [lang, setLangState] = useState<Lang>(() => {
+    const initial = getDeviceLanguage()
+    _currentLang = initial
+    return initial
+  })
 
   // Load saved language preference async
   useEffect(() => {
     storage.getStringAsync(LANG_KEY).then(saved => {
-      if (saved === 'zh' || saved === 'en') setLangState(saved)
+      if (saved === 'zh' || saved === 'en') {
+        setLangState(saved)
+        _currentLang = saved
+      }
     })
   }, [])
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
+    _currentLang = l
     storage.setStringAsync(LANG_KEY, l)
   }, [])
 
@@ -66,3 +74,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 export function useI18n() {
   return useContext(I18nContext)
 }
+
+// Global lang accessor for non-React code (API interceptor etc.)
+let _currentLang: Lang = 'en'
+export function getCurrentLang(): Lang { return _currentLang }
+export function setCurrentLang(l: Lang) { _currentLang = l }
