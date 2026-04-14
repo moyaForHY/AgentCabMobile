@@ -4,3 +4,23 @@ app/android/build/
 app/android/app/build/
 app/android/local.properties
 .gradle/
+
+# OS / editor / agent
+.DS_Store
+.claude/
+
+# ML scratch (training output, models, tools)
+runs/
+tools/
+*.pt
+
+# Native third-party SDKs (downloaded out-of-band — not in repo)
+app/android/app/src/main/jni/ncnn-*/
+app/android/app/src/main/jni/opencv-*/
+app/android/app/src/main/jni/*.zip
+# Embedded font binary (56MB, generated)
+app/android/app/src/main/jni/myfontface.h
+# Compiled native libs (built from jni source)
+app/android/app/src/main/jniLibs/
+# Bundled OCR model binaries (downloaded at build time)
+app/android/app/src/main/assets/models/ocr/PP_OCRv5_*
