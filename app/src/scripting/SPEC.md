@@ -1,4 +1,4 @@
-# AgentCab Script Language Specification
+# AgentCab Script (ACS) Language Specification
 
 ## Overview
 
@@ -15,9 +15,9 @@ AI generates script text
        ↓
    Interpreter (TypeScript, runs in RN JS thread)
        ↓
-   NativeModules (Kotlin AccessibilityManager)
+   NativeModules (Kotlin AccessibilityManager, CvModule, PaddleOcrModule)
        ↓
-   Android Accessibility Service
+   Android Accessibility Service + OpenCV + PaddleOCR
 ```
 
 ## Data Types
@@ -52,67 +52,26 @@ No `const` (everything is mutable). No `var`.
 
 ### if / else
 ```javascript
-if (screen.has("新消息")) {
-  click("新消息")
-} else if (screen.has("通讯录")) {
-  click("通讯录")
-} else {
-  log("nothing found")
-}
+if (condition) { ... }
+else if (condition) { ... }
+else { ... }
 ```
 
-### while
+### while / for / for-of
 ```javascript
-while (screen.has("加载中")) {
-  wait(500)
-}
+while (condition) { ... }
+for (let i = 0; i < 5; i = i + 1) { ... }
+for (let item of array) { ... }
 ```
 
-### for
-```javascript
-for (let i = 0; i < 5; i += 1) {
-  scrollDown()
-  wait(500)
-}
-
-// for-of arrays
-let items = screen.findAll("商品")
-for (let item of items) {
-  log(item.text)
-}
-```
-
-### break / continue
-```javascript
-while (true) {
-  if (screen.has("完成")) {
-    break
-  }
-  wait(1000)
-}
-```
+### break / continue / return
+Supported inside loops and functions.
 
 ## Functions
 
 ```javascript
-function sendMessage(contact, msg) {
-  click(contact)
-  wait(1000)
-  type(msg)
-  click("发送")
-}
-
-sendMessage("妈妈", "今天回家吃饭")
-```
-
-### return
-```javascript
-function findPrice() {
-  let text = screen.getText("¥")
-  if (text == null) {
-    return -1
-  }
-  return text
+function name(param1, param2) {
+  return value
 }
 ```
 
@@ -126,110 +85,219 @@ try {
 }
 ```
 
+---
+
 ## Built-in APIs
 
-### Screen Query
+### Screen Query (OCR-based)
 ```javascript
-screen.has(text)                    // → boolean
-screen.findText(text)               // → Element | null
-screen.findAll(text)                // → Element[]
-screen.findId(id)                   // → Element | null
-screen.waitFor(text, timeoutMs)     // → boolean (blocks until found or timeout)
-screen.waitGone(text, timeoutMs)    // → boolean (blocks until gone or timeout)
-screen.getText(near)                // → string | null
-screen.dump()                       // → string (full accessibility tree XML)
+screen.has(text)                        // → boolean — text visible on screen?
+screen.findText(text)                   // → {text, _center, _bgR, _bgG, _bgB, chars} | null
+screen.findAll(text)                    // → [{text, _center, _bgR, _bgG, _bgB, chars}, ...]
+screen.findId(id)                       // → Element | null (accessibility tree)
+screen.waitFor(text, timeoutMs)         // → boolean — block until text appears
+screen.waitGone(text, timeoutMs)        // → boolean — block until text disappears
+screen.getText(near)                    // → string | null — get text near keyword
+screen.dump()                           // → string — full accessibility tree
+screen.findByColor(options)             // → [{text, x, y, bgR, bgG, bgB}, ...] — CV detect + region OCR
 ```
 
-### Element Properties
+### OCR
 ```javascript
-let el = screen.findText("发送")
-el.text        // string
-el.id          // string
-el.className   // string
-el.bounds      // {left, top, right, bottom}
-el.enabled     // boolean
-el.checked     // boolean
-el.clickable   // boolean
-el.click()     // click this element
-el.longPress() // long press
-el.setText(s)  // set text
+ocrRegion(x, y, width, height)          // → [{text, centerX, centerY, chars, _bgR, _bgG, _bgB}, ...]
+// chars: [{left, top, right, bottom}, ...] — per-character positions
+// _bgR/_bgG/_bgB: background color (quantized /4*4, 64 levels)
 ```
 
 ### Actions
 ```javascript
-click(text)                         // click by text
-clickAt(x, y)                      // click by coordinates
-clickIndex(text, n)                 // click nth match
-longPress(text)                     // long press by text
-type(text)                          // type into focused input
-clearText()                         // clear focused input
-paste()                             // paste clipboard
+click(text)                             // click by text
+clickAt(x, y)                           // click by coordinates
+clickIndex(text, n)                     // click nth match
+longPress(text)                         // long press by text
+longPressAt(x, y)                       // long press by coordinates
+type(text)                              // type into focused input (auto: ACTION_SET_TEXT → clipboard fallback)
+clearText()                             // clear focused input
+paste()                                 // paste clipboard content
 ```
 
 ### Gestures
 ```javascript
-swipe(direction)                    // "up" | "down" | "left" | "right"
-swipeAt(x1, y1, x2, y2, durationMs)
+swipe(direction)                        // "up" | "down" | "left" | "right"
+swipeAt(x1, y1, x2, y2, durationMs)    // custom swipe
 scrollDown()
 scrollUp()
-scrollTo(text)                      // scroll until text found
-pinch(direction)                    // "in" | "out"
+scrollTo(text)                          // scroll until text found (max 20 scrolls)
+pinch(direction)                        // "in" | "out" (TODO)
+```
+
+### Wait
+```javascript
+wait(ms)                                // sleep
+
+waitFor(condition)                      // → {found, text, x, y, node} — wait for element
+// condition: {
+//   text: "发送",                       // text to find
+//   bgColor: {r, g, b, tolerance},     // background color filter (OCR quantized /4*4)
+//   region: {x, y, w, h},             // limit search area
+//   timeout: 10000                     // ms, default 10000
+// }
+
+waitForChange(timeoutMs)                // → boolean — wait for screen change (via SSIM perception)
 ```
 
 ### Navigation
 ```javascript
-back()                              // press back
-home()                              // press home
-recent()                            // recent apps
+back()                                  // press back
+home()                                  // press home
+recent()                                // recent apps
 ```
 
 ### App Management
 ```javascript
-launch(packageName)                 // launch app
-currentApp()                        // → string (package name)
-isRunning(packageName)              // → boolean
+launch(packageName)                     // launch app
+currentApp()                            // → string (current foreground package name)
+isRunning(packageName)                  // → boolean (is this package in foreground?)
 ```
 
 ### System
 ```javascript
-wait(ms)                            // sleep
-screenshot()                        // → base64 string (for AI vision)
-toast(message)                      // show toast
-vibrate(ms)                         // vibrate
-getClipboard()                      // → string
-setClipboard(text)                  // set clipboard
-getTime()                           // → number (timestamp)
-log(message)                        // debug log
+wait(ms)                                // sleep
+screenshot()                            // → base64 string
+toast(message)                          // show toast
+vibrate(ms)                             // vibrate
+getClipboard()                          // → string
+setClipboard(text)                      // set clipboard
+getScreenSize()                         // → {width, height}
+getTime()                               // → number (timestamp ms)
+log(message)                            // debug log (shown in overlay)
+setOverlayLogs(enabled)                 // enable/disable overlay log display
 ```
 
 ### Notifications
 ```javascript
-getNotifications()                  // → [{title, text, package, time}]
-clearNotification(index)            // clear nth notification
+getNotifications()                      // → [{title, text, package, time}]
+clearNotification(index)                // clear nth notification
 ```
 
-### Network (for reporting results)
+### Network
 ```javascript
-http.get(url)                       // → {status, body}
-http.post(url, body)                // → {status, body}
+http.get(url)                           // → {status, body}
+http.post(url, body)                    // → {status, body}
 ```
 
 ### Storage (persist data between runs)
 ```javascript
 store.set(key, value)
-store.get(key)                      // → any
+store.get(key)                          // → any
 store.remove(key)
 ```
+
+---
+
+## CV (Computer Vision) — `cv.*`
+
+All CV functions use screenshots from the Accessibility Service. Colors are quantized to 64 levels (/4*4).
+
+### Perception Loop
+```javascript
+cv.startPerception(intervalMs, threshold)   // start background SSIM monitoring
+cv.stopPerception()
+cv.getState()                               // → {ssim, isStable, hasChanged, changeCount, stableCount, frameCount}
+cv.ackChange()                              // reset sticky hasChanged flag
+```
+
+### Element Detection
+```javascript
+cv.detectElements(minAreaRatio, maxResults, dilateSize, cannyLow, cannyHigh)
+// → [{x, y, width, height, cx, cy, area, r, g, b, relX, relY, relW, relH,
+//     ratio, dominance, colorCount, topColors: [{r, g, b, ratio}, ...], isImage}]
+// Canny edge detection → contour → bounding rect → color sampling
+// topColors: top 5 colors sorted by frequency (quantized /4*4)
+
+cv.findRects(minArea, maxResults)           // → [{x, y, width, height, ...}]
+```
+
+### SSIM
+```javascript
+cv.ssim()                                   // → number (0-1, similarity to previous frame)
+cv.isStable(threshold)                      // → boolean
+cv.hasChanged(threshold)                    // → boolean
+cv.resetFrame()                             // reset reference frame for next ssim comparison
+```
+
+### Template Matching
+```javascript
+cv.matchTemplate(base64, threshold)         // → {x, y, confidence, found}
+cv.matchTemplateMultiScale(base64, threshold) // → {x, y, confidence, found, scale}
+cv.matchTemplateAll(base64, threshold, max) // → [{x, y, confidence}, ...]
+
+// Named templates (save/load)
+cv.saveTemplate(name, x, y, w, h)          // capture region as named template
+cv.matchByName(name, threshold)             // → {x, y, confidence, found}
+cv.listTemplates()                          // → [name, ...]
+cv.deleteTemplate(name)
+```
+
+### Color
+```javascript
+cv.regionColor(x, y, w, h)                 // → {r, g, b, isGreen, isWhite, isGray}
+cv.pixelColor(x, y)                        // → {r, g, b, a}
+```
+
+### Motion
+```javascript
+cv.globalMotion()                           // → {dx, dy, magnitude, scrolling, direction}
+cv.trackPoints(points)                      // → [{x, y, found}, ...] — optical flow
+cv.diffRegions(threshold, minAreaRatio)     // → [{x, y, width, height, ...}]
+```
+
+### Screenshot
+```javascript
+cv.cropScreenshot(x, y, w, h)              // → base64 string (JPEG)
+cv.screenMeta()                             // → {screenWidth, screenHeight, density, densityDpi, statusBarHeight, navBarHeight}
+```
+
+### Frame Lock
+```javascript
+cv.lockFrame()                              // lock current frame for multiple CV operations
+cv.unlockFrame()                            // release locked frame
+```
+
+### Text Utilities (native, faster than script)
+```javascript
+cv.editDistance(str1, str2, maxDist)         // → number (Levenshtein distance)
+cv.fuzzyMatch(str1, str2, threshold)        // → boolean (editDistance/maxLen <= threshold)
+cv.fuzzyFindInList(query, list, threshold)  // → [index, ...] (matching indices)
+```
+
+---
+
+## Utilities
+
+```javascript
+parseInt(str)                               // string → integer
+parseFloat(str)                             // string → float
+String(value)                               // → string
+Number(value)                               // → number
+JSON.parse(str)                             // → object
+JSON.stringify(obj)                         // → string
+Math.floor(n) / Math.ceil(n) / Math.round(n)
+Math.abs(n) / Math.max(a,b) / Math.min(a,b)
+Math.random()                               // → 0-1
+Date.now()                                  // → timestamp ms
+Date.new()                                  // → date string
+```
+
+---
 
 ## Execution Model
 
 - **Synchronous by default** — each line waits for completion
-- **Screen queries are instant** — read current state
-- **Actions have implicit waits** — click waits for animation (200ms default)
-- **Timeout on all blocking operations** — default 30s, configurable
+- **Screen queries are instant** — read current state (OCR cached 500ms)
+- **Actions have implicit waits** — click waits for animation
 - **Execution can be cancelled** — user can stop at any time
-- **Max execution time** — 5 minutes default, configurable per script
-- **Rate limiting** — max 10 actions per second (prevent abuse)
+- **Rate limiting** — max 10 actions per second
 
 ## Safety
 
@@ -237,71 +305,4 @@ store.remove(key)
 - No arbitrary code execution
 - No access to other apps' data (only what's on screen)
 - All actions can be interrupted by user
-- Dangerous actions (uninstall, delete, send SMS) require user confirmation
 - Scripts run in isolated scope (no access to app internals)
-
-## Example Scripts
-
-### Auto-reply WeChat
-```javascript
-function autoReply(keyword, reply) {
-  launch("com.tencent.mm")
-  wait(2000)
-
-  while (true) {
-    if (screen.has(keyword)) {
-      click(keyword)
-      wait(1000)
-      type(reply)
-      click("发送")
-      wait(500)
-      back()
-    }
-    wait(3000)
-  }
-}
-
-autoReply("在吗", "稍等，一会儿回复你")
-```
-
-### Batch like posts on Xiaohongshu
-```javascript
-launch("com.xingin.xhs")
-wait(3000)
-
-for (let i = 0; i < 20; i += 1) {
-  let hearts = screen.findAll("♡")
-  for (let heart of hearts) {
-    heart.click()
-    wait(300)
-  }
-  scrollDown()
-  wait(1000)
-}
-```
-
-### Monitor price drop
-```javascript
-function checkPrice(url, target) {
-  launch("com.android.browser")
-  wait(2000)
-  // navigate to URL
-  click("地址栏")
-  clearText()
-  type(url)
-  click("前往")
-  wait(5000)
-
-  let priceEl = screen.findText("¥")
-  if (priceEl != null) {
-    let price = priceEl.text
-    log("Current price: " + price)
-    if (price <= target) {
-      toast("降价了！现在 " + price)
-      vibrate(1000)
-    }
-  }
-}
-
-checkPrice("https://item.jd.com/123456.html", 299)
-```

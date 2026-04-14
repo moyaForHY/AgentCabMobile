@@ -67,7 +67,7 @@ export default function DownloadButton({ url, filename, mimeType }: Props) {
     <>
       <TouchableOpacity onPress={handlePress} activeOpacity={0.6} style={s.btn}>
         {status === 'downloading' ? (
-          <ActivityIndicator size="small" color={colors.ink500} style={{ marginRight: 4 }} />
+          <ActivityIndicator size="small" color={colors.ink500} style={{ marginEnd: 4 }} />
         ) : null}
         <Text style={[s.text, { color: textColor }]}>{label}</Text>
       </TouchableOpacity>

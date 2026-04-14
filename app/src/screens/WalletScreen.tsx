@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -9,27 +9,30 @@ import {
   FlatList,
   Linking,
   RefreshControl,
+  AppState,
+  AppStateStatus,
 } from 'react-native'
 import { colors, spacing, fontSize, fontWeight, shadows } from '../utils/theme'
 import { useI18n } from '../i18n'
 import { showModal } from '../components/AppModal'
-import { fetchWallet, fetchTransactions, createZPayOrder, checkZPayOrder } from '../services/api'
+import { fetchWallet, fetchTransactions, createStripeRecharge } from '../services/api'
 import { storage } from '../services/storage'
 import Icon from 'react-native-vector-icons/Feather'
 import { SkeletonBox } from '../components/Skeleton'
 import LinearGradient from 'react-native-linear-gradient'
 
-const RECHARGE_AMOUNTS = [10, 30, 50, 100]
+// USD amounts (1 USD = 100 credits)
+const RECHARGE_AMOUNTS = [5, 10, 20, 50]
 
 export default function WalletScreen() {
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [wallet, setWallet] = useState<any>(null)
   const [transactions, setTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [recharging, setRecharging] = useState(false)
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null)
-  const [paymentType] = useState<'wxpay' | 'alipay'>('alipay')
+  const appState = useRef(AppState.currentState)
 
   const load = useCallback(async () => {
     try {
@@ -64,62 +67,50 @@ export default function WalletScreen() {
     })()
   }, [load])
 
+  // Refresh wallet when app returns from background — catches Stripe payments
+  // completed in browser.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (appState.current.match(/inactive|background/) && next === 'active') {
+        load()
+      }
+      appState.current = next
+    })
+    return () => sub.remove()
+  }, [load])
+
   const onRefresh = async () => {
     setRefreshing(true)
     await load()
     setRefreshing(false)
   }
 
-  const handleRecharge = async (amount: number) => {
+  const handleRecharge = async (amountUsd: number) => {
     setRecharging(true)
     try {
-      const order = await createZPayOrder(amount, paymentType)
-      // Try to open Alipay app directly via scheme, fallback to browser
-      const alipayScheme = order.payurl
-        ? `alipays://platformapi/startapp?saId=10000007&qrcode=${encodeURIComponent(order.payurl)}`
-        : null
-
-      let opened = false
-      if (alipayScheme) {
-        try {
-          const canOpen = await Linking.canOpenURL(alipayScheme)
-          if (canOpen) {
-            await Linking.openURL(alipayScheme)
-            opened = true
-          }
-        } catch {}
+      const order = await createStripeRecharge(amountUsd)
+      if (!order.checkout_url) {
+        throw new Error(t.failed)
       }
 
-      // Fallback: open in browser
-      if (!opened && order.payurl) {
-        try {
-          await Linking.openURL(order.payurl)
-          opened = true
-        } catch {}
-      }
+      // Open Stripe Checkout in the user's browser. After payment they will
+      // manually return to the app — the AppState listener above refreshes
+      // the wallet automatically.
+      await Linking.openURL(order.checkout_url)
 
-      // Show confirmation dialog after opening payment
-      if (opened) {
-        showModal(
-          t.paymentTitle,
-          t.paymentConfirm,
-          [
-            {
-              text: t.ivePaid,
-              onPress: async () => {
-                try {
-                  await checkZPayOrder(order.out_trade_no)
-                  await load()
-                  showModal(t.successTitle, t.paymentSuccess)
-                } catch {
-                  showModal(t.pendingTitle, t.paymentPending)
-                }
-              },
+      showModal(
+        t.paymentTitle,
+        t.paymentReturnHint,
+        [
+          {
+            text: t.ivePaid,
+            onPress: async () => {
+              await load()
             },
-            { text: t.cancel, style: 'cancel' },
-          ],
-        )
-      }
+          },
+          { text: t.cancel, style: 'cancel' },
+        ],
+      )
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.failed)
     } finally {
@@ -160,14 +151,14 @@ export default function WalletScreen() {
           </Text>
           <View style={styles.balanceBadge}>
             <Icon name="zap" size={12} color="#93c5fd" />
-            <Text style={styles.balanceBadgeText}>{lang === 'zh' ? '可用余额' : 'Available'}</Text>
+            <Text style={styles.balanceBadgeText}>{t.wallet_available}</Text>
           </View>
         </View>
       </LinearGradient>
 
       {/* Recharge Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.rechargeViaAlipay}</Text>
+        <Text style={styles.sectionTitle}>{t.rechargeViaStripe}</Text>
 
         <View style={styles.amountGrid}>
           {RECHARGE_AMOUNTS.map(amount => (
@@ -177,10 +168,10 @@ export default function WalletScreen() {
               onPress={() => setSelectedAmount(amount)}
               activeOpacity={0.7}>
               <Text style={[styles.amountValue, selectedAmount === amount && styles.amountValueSelected]}>
-                ¥{amount}
+                ${amount}
               </Text>
               <Text style={[styles.amountCredits, selectedAmount === amount && styles.amountCreditsSelected]}>
-                {amount * 10} {t.credits}
+                {amount * 100} {t.credits}
               </Text>
             </TouchableOpacity>
           ))}
@@ -202,7 +193,7 @@ export default function WalletScreen() {
               style={styles.rechargeGradient}>
               <View style={styles.rechargeGradientInner}>
                 <Text style={styles.rechargeButtonText}>
-                  {`${t.payAmount}${selectedAmount}`}
+                  {`${t.payAmountUSD}${selectedAmount}`}
                 </Text>
               </View>
             </LinearGradient>
@@ -224,7 +215,7 @@ export default function WalletScreen() {
               <Icon name="credit-card" size={28} color={colors.ink500} />
             </View>
             <Text style={styles.emptyText}>{t.noTransactions}</Text>
-            <Text style={styles.emptySubtext}>{lang === 'zh' ? '使用分身后交易记录会出现在这里' : 'Transactions will appear here after using clones'}</Text>
+            <Text style={styles.emptySubtext}>{t.wallet_emptyHint}</Text>
           </View>
         ) : (
           <View style={styles.txListShadow}>
@@ -451,7 +442,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginEnd: 12,
   },
   txIconPositive: {
     backgroundColor: 'rgba(16,185,129,0.1)',

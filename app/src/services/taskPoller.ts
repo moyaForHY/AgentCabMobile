@@ -9,7 +9,7 @@ import { storage } from './storage'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from './events'
 import { executeActions, type Action } from './actionExecutor'
 import { showNotification } from './notifications'
-import { isChinese } from '../utils/i18n'
+import { getT, format } from '../i18n'
 
 const AlarmSchedulerModule = NativeModules.AlarmSchedulerModule
 
@@ -57,18 +57,18 @@ async function checkOnce() {
         })
 
         // Push notification (especially useful when app is in background)
-        const zh = isChinese()
+        const t = getT()
         if (c.status === 'success' || c.status === 'completed') {
           showNotification(
-            skillName || (zh ? '任务完成' : 'Task Complete'),
-            zh ? `${skillName} 已完成，点击查看结果` : `${skillName} finished. Tap to view results.`,
+            skillName || t.taskPoller_complete,
+            format(t.taskPoller_completeBody, skillName),
             undefined,
             c.id,
           ).catch(() => {})
         } else if (c.status === 'failed') {
           showNotification(
-            zh ? '任务失败' : 'Task Failed',
-            zh ? `${skillName} 执行失败：${c.error_message || '未知错误'}` : `${skillName} failed: ${c.error_message || 'Unknown error'}`,
+            t.taskPoller_failed,
+            format(t.taskPoller_failedBody, skillName, c.error_message || t.taskPoller_unknownErr),
             undefined,
             c.id,
           ).catch(() => {})

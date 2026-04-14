@@ -59,7 +59,11 @@ export const storage = {
     } catch { return null }
   },
   setStringAsync: async (key: string, value: string): Promise<void> => {
-    AsyncStorage.setItem(key, value).catch(() => {})
+    try {
+      await AsyncStorage.setItem(key, value)
+    } catch (e: any) {
+      console.error(`[storage] setStringAsync failed key=${key} bytes=${value.length}:`, e?.message || e)
+    }
   },
   clearCache: async (): Promise<void> => {
     try { await AsyncStorage.clear() } catch {}

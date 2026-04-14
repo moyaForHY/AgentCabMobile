@@ -30,7 +30,9 @@ function isPhone(input: string): boolean {
 
 export default function LoginScreen() {
   const { login, register } = useAuth()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  // Phone login/register only for zh market. Overseas locales go email-only.
+  const emailOnly = lang !== 'zh'
   const { height: kbHeight } = useKeyboard()
   const [mode, setMode] = useState<Mode>('login')
   const [step, setStep] = useState<Step>('form')
@@ -103,7 +105,7 @@ export default function LoginScreen() {
       }
       setLoading(true)
       try {
-        if (isPhone(account)) {
+        if (!emailOnly && isPhone(account)) {
           await login(account.trim(), password, { phone: account.trim(), password })
         } else {
           await login(account.trim(), password)
@@ -126,15 +128,18 @@ export default function LoginScreen() {
         return
       }
 
-      if (isPhone(account)) {
+      if (!emailOnly && isPhone(account)) {
         // Phone register → send code and go to verify step
         await handleSendCode()
         setStep('verify')
       } else {
-        // Email register → register directly
+        // Email register → register first, then verify email
         setLoading(true)
         try {
           await register(name.trim(), account.trim(), password)
+          // 注册成功后发送邮箱验证码，跳到验证页
+          try { await api.post('/auth/send-email-verification') } catch {}
+          setStep('verify')
         } catch (err: any) {
           showModal(t.errorTitle, err.message || t.registrationFailed)
         } finally {
@@ -144,7 +149,7 @@ export default function LoginScreen() {
     }
   }
 
-  // Step 2: Verify SMS code and complete registration
+  // Step 2: Verify code and complete registration
   const handleVerifySubmit = async () => {
     if (!smsCode.trim() || smsCode.length < 6) {
       showModal(t.errorTitle, t.enterSmsCode)
@@ -152,7 +157,12 @@ export default function LoginScreen() {
     }
     setLoading(true)
     try {
-      await register(name.trim(), '', password, { phone: account.trim(), sms_code: smsCode.trim() })
+      if (!emailOnly && isPhone(account)) {
+        await register(name.trim(), '', password, { phone: account.trim(), sms_code: smsCode.trim() })
+      } else {
+        // 邮箱验证码验证
+        await api.post('/auth/verify-email', { code: smsCode.trim() })
+      }
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.registrationFailed)
     } finally {
@@ -203,7 +213,7 @@ export default function LoginScreen() {
 
               {/* Account */}
               <TextInput style={s.input}
-                placeholder={t.phoneOrEmail}
+                placeholder={emailOnly ? t.emailPlaceholder : t.phoneOrEmail}
                 placeholderTextColor={colors.ink500}
                 value={account} onChangeText={setAccount}
                 autoCapitalize="none" keyboardType="email-address" />
@@ -228,7 +238,7 @@ export default function LoginScreen() {
                   <View style={s.btnInner}>
                     {loading ? <ActivityIndicator color="#fff" /> : (
                       <Text style={s.btnText}>
-                        {mode === 'login' ? t.login : (isPhone(account) ? t.nextStep : t.createAccount)}
+                        {mode === 'login' ? t.login : ((!emailOnly && isPhone(account)) ? t.nextStep : t.createAccount)}
                       </Text>
                     )}
                   </View>

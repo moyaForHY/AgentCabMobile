@@ -15,7 +15,7 @@ import ReactNativeBlobUtil from 'react-native-blob-util'
 import { downloadToDevice } from '../services/fileDownloader'
 import { showModal } from './AppModal'
 import { getAccessToken } from '../services/storage'
-import { isChinese } from '../utils/i18n'
+import { useI18n } from '../i18n'
 
 type Props = {
   visible: boolean
@@ -28,9 +28,10 @@ type Props = {
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window')
 
 export default function ImagePreview({ visible, uri, filename, mimeType, onClose }: Props) {
+  const { t } = useI18n()
   const [saving, setSaving] = React.useState(false)
   const [authHeaders, setAuthHeaders] = useState<Record<string, string>>({})
-  useEffect(() => { getAccessToken().then(t => { if (t) setAuthHeaders({ Authorization: `Bearer ${t}` }) }) }, [])
+  useEffect(() => { getAccessToken().then(tok => { if (tok) setAuthHeaders({ Authorization: `Bearer ${tok}` }) }) }, [])
 
   const handleSave = async () => {
     if (saving) return
@@ -48,7 +49,7 @@ export default function ImagePreview({ visible, uri, filename, mimeType, onClose
         if (path) await ReactNativeBlobUtil.android.actionViewIntent(path, mimeType || 'image/jpeg')
       }
     } catch (e: any) {
-      showModal(isChinese() ? '保存失败' : 'Failed')
+      showModal(t.preview_saveFailed)
     } finally {
       setSaving(false)
     }
@@ -77,7 +78,7 @@ export default function ImagePreview({ visible, uri, filename, mimeType, onClose
           ) : (
             <>
               <Icon name="share" size={18} color="#fff" />
-              <Text style={s.saveBtnText}>{isChinese() ? '用其他应用打开' : 'Open with...'}</Text>
+              <Text style={s.saveBtnText}>{t.taskResult_openWith}</Text>
             </>
           )}
         </TouchableOpacity>

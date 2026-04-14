@@ -93,7 +93,7 @@ type Filter = typeof FILTERS[number]
 
 export default function TasksScreen({ navigation }: any) {
   const insets = useSafeAreaInsets()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [filter, setFilter] = useState<Filter>('all')
   const [calls, setCalls] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -185,7 +185,7 @@ export default function TasksScreen({ navigation }: any) {
 
   const renderCall = ({ item, index }: { item: any; index: number }) => (
     <Pressable
-      style={({ pressed }) => [s.card, { borderLeftWidth: 3, borderLeftColor: getAccentColor(item.status), backgroundColor: pressed ? '#f0f4f8' : '#fff' }]}
+      style={({ pressed }) => [s.card, { borderStartWidth: 3, borderStartColor: getAccentColor(item.status), backgroundColor: pressed ? '#f0f4f8' : '#fff' }]}
       onPress={() => navigation.navigate('TaskResult', { taskId: item.id })}>
       {/* Top row: icon + name + status pill */}
       <View style={s.cardTop}>
@@ -257,7 +257,7 @@ export default function TasksScreen({ navigation }: any) {
             const isActive = filter === f
             const label = (
               <Text style={[s.filterChipText, isActive && s.filterChipTextActive]}>
-                {f === 'all' ? t.allFilter : f === 'success' ? t.success : f === 'failed' ? t.failed : (lang === 'zh' ? '等待中' : 'Waiting')}
+                {f === 'all' ? t.allFilter : f === 'success' ? t.success : f === 'failed' ? t.failed : t.tasks_waiting}
               </Text>
             )
             return (
@@ -384,8 +384,8 @@ const s = StyleSheet.create({
   },
   cardInfo: {
     flex: 1,
-    marginLeft: 14,
-    marginRight: spacing.sm,
+    marginStart: 14,
+    marginEnd: spacing.sm,
   },
   cardName: {
     fontSize: fontSize.sm + 1,
@@ -417,7 +417,7 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   metaIcon: {
-    marginRight: 3,
+    marginEnd: 3,
   },
   metaLabel: {
     fontSize: 10,

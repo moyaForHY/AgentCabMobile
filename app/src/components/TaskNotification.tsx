@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   icon: {
     fontSize: 16,
     color: '#fff',
-    marginRight: 10,
+    marginEnd: 10,
     fontWeight: fontWeight.bold as any,
   },
   text: {
@@ -137,6 +137,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 13,
     fontWeight: fontWeight.medium as any,
-    marginLeft: 8,
+    marginStart: 8,
   },
 })

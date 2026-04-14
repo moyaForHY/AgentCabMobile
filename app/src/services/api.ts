@@ -389,7 +389,16 @@ export async function fetchTransactions(page = 1, pageSize = 20) {
   }
 }
 
-// Z-Pay
+// Stripe (USD) — primary payment method
+export async function createStripeRecharge(amountUsd: number) {
+  const { data } = await api.post('/wallet/recharge', { amount_usd: amountUsd })
+  return data.data as {
+    checkout_url: string
+    session_id: string
+  }
+}
+
+// Z-Pay (deprecated, kept temporarily for backwards compatibility)
 export async function createZPayOrder(amount: number, type: 'wxpay' | 'alipay' = 'wxpay') {
   const { data } = await api.post('/payment/zpay/create-order', { amount, payment_type: type })
   return data.data as {

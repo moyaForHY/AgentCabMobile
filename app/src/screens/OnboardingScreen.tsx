@@ -105,7 +105,7 @@ function _OldIllustrationAct() {
         {/* Arrows from authors to center */}
         {[70, 130, 190].map((y, i) => (
           <View key={i} style={{ position: 'absolute', left: 50, top: y - 1, width: 50, height: 2, backgroundColor: 'rgba(37,99,235,0.15)' }}>
-            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderLeftWidth: 6, borderLeftColor: 'rgba(37,99,235,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
+            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderStartWidth: 6, borderStartColor: 'rgba(37,99,235,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
           </View>
         ))}
       </Animated.View>
@@ -128,7 +128,7 @@ function _OldIllustrationAct() {
         {/* Arrows from center to users */}
         {[90, 150].map((y, i) => (
           <View key={i} style={{ position: 'absolute', right: 50, top: y - 1, width: 50, height: 2, backgroundColor: 'rgba(217,119,6,0.15)' }}>
-            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderLeftWidth: 6, borderLeftColor: 'rgba(217,119,6,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
+            <View style={{ position: 'absolute', right: 0, top: -3, width: 0, height: 0, borderStartWidth: 6, borderStartColor: 'rgba(217,119,6,0.25)', borderTopWidth: 4, borderTopColor: 'transparent', borderBottomWidth: 4, borderBottomColor: 'transparent' }} />
           </View>
         ))}
         <User y={70} delay={400} label="1" />
@@ -527,7 +527,7 @@ const ill = StyleSheet.create({
     backgroundColor: '#1e40af',
     borderRadius: 2,
     left: '50%',
-    marginLeft: -1.5,
+    marginStart: -1.5,
     transformOrigin: 'bottom',
   },
   clockCenter: {

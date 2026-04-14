@@ -3,7 +3,8 @@
  * Exposes native CalendarManager module to TypeScript.
  * Enables APIs to read, create, and delete calendar events.
  */
-import { NativeModules, Platform, PermissionsAndroid } from 'react-native'
+import { NativeModules, Platform } from 'react-native'
+import { requirePermission } from './permissionGate'
 
 const { CalendarManager } = NativeModules
 
@@ -29,38 +30,7 @@ export type CalendarEvent = {
  */
 export async function requestCalendarPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return false
-
-  const readPermission = PermissionsAndroid.PERMISSIONS.READ_CALENDAR
-  const writePermission = PermissionsAndroid.PERMISSIONS.WRITE_CALENDAR
-
-  const readGranted = await PermissionsAndroid.check(readPermission)
-  const writeGranted = await PermissionsAndroid.check(writePermission)
-  if (readGranted && writeGranted) return true
-
-  const results = await PermissionsAndroid.requestMultiple([
-    readPermission,
-    writePermission,
-  ])
-
-  const granted =
-    results[readPermission] === PermissionsAndroid.RESULTS.GRANTED &&
-    results[writePermission] === PermissionsAndroid.RESULTS.GRANTED
-
-  if (!granted) {
-    // Only guide to Settings when system won't prompt again
-    const neverAsk = results[readPermission] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ||
-      results[writePermission] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
-    if (neverAsk) {
-      const { showModal } = require('../components/AppModal')
-      const { permissionStrings, openPermissionEditor } = require('../utils/i18n')
-      const s = permissionStrings('calendar')
-      showModal(s.title, s.message, [
-        { text: s.goSettings, onPress: () => openPermissionEditor() },
-        { text: s.cancel, style: 'cancel' as const },
-      ])
-    }
-  }
-  return granted
+  return await requirePermission('calendar')
 }
 
 /**

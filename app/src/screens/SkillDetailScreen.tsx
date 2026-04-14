@@ -17,11 +17,10 @@ import LinearGradient from 'react-native-linear-gradient'
 import Icon from 'react-native-vector-icons/Feather'
 import { colors, fontWeight, shadows } from '../utils/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useI18n } from '../i18n'
+import { useI18n, format } from '../i18n'
 import { fetchSkillById, callSkill, uploadFile, fetchWallet, fetchSkillExample, fetchSkillExampleFiles, fetchReviews, fetchCalls, SITE_URL, type Skill, type Review } from '../services/api'
 import DownloadButton from '../components/DownloadButton'
 import { isImageFile, isPdfFile, isHtmlFile } from '../components/ImagePreview'
-import { isChinese } from '../utils/i18n'
 import ImagePreview from '../components/ImagePreview'
 import PdfPreview from '../components/PdfPreview'
 import { WebView } from 'react-native-webview'
@@ -29,6 +28,7 @@ import { Modal } from 'react-native'
 import { storage } from '../services/storage'
 import { taskManager } from '../services/taskManager'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
+import { permTypesFromSchema, requirePermissions } from '../services/permissionGate'
 import DynamicForm from '../components/DynamicForm'
 import ReviewCard from '../components/ReviewCard'
 import { SkillDetailSkeleton } from '../components/Skeleton'
@@ -43,9 +43,39 @@ type PageTab = 'use' | 'history' | 'example' | 'reviews'
 // In-memory cache for instant re-entry
 const skillMemCache = new Map<string, { skill: any; wallet: any; example: any; exampleFiles: any[] }>()
 
+/** 把 markdown 文本包成完整 HTML 文档，由 marked.js (CDN) 在 WebView 内渲染 */
+function buildMarkdownHtml(md: string): string {
+  const escaped = md.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{font:15px/1.6 -apple-system,system-ui,sans-serif;color:#1f2937;padding:16px;margin:0;word-wrap:break-word}
+  h1,h2,h3,h4{font-weight:600;margin:1em 0 .4em}
+  h1{font-size:1.5em;border-bottom:1px solid #e5e7eb;padding-bottom:.3em}
+  h2{font-size:1.3em} h3{font-size:1.1em}
+  p{margin:.6em 0} ul,ol{padding-left:1.4em;margin:.6em 0}
+  li{margin:.2em 0}
+  code{background:#f3f4f6;padding:2px 5px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+  pre{background:#f8fafc;padding:12px;border-radius:8px;overflow-x:auto}
+  pre code{background:none;padding:0}
+  blockquote{border-left:3px solid #cbd5e1;padding-left:12px;color:#64748b;margin:.8em 0}
+  a{color:#2563eb;text-decoration:none}
+  table{border-collapse:collapse;width:100%;margin:.6em 0}
+  th,td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left}
+  th{background:#f8fafc}
+  hr{border:none;border-top:1px solid #e5e7eb;margin:1em 0}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head><body><div id="content">Loading...</div>
+<script>
+  const md = \`${escaped}\`;
+  document.getElementById('content').innerHTML = marked.parse(md);
+</script>
+</body></html>`
+}
+
 export default function SkillDetailScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const { skillId, autoUse, preInputValues } = route.params
   const { isPinned, pin, unpin } = usePinnedApis()
   const memCached = skillMemCache.get(skillId)
@@ -83,15 +113,19 @@ export default function SkillDetailScreen({ route, navigation }: any) {
   useEffect(() => {
     const cacheKey = `skill_detail_${skillId}`
 
+    let valuesInitialized = false
     const applySkillData = (s: Skill, w: { credits: any }, ex: any, exFiles: any[]) => {
       setSkill(s)
       setBalance(Number(w.credits))
-      const defaults: Record<string, any> = {}
-      const props = s.input_schema?.properties as Record<string, any> || {}
-      for (const [key, prop] of Object.entries(props)) {
-        if (prop.default != null) defaults[key] = prop.default
+      if (!valuesInitialized) {
+        const defaults: Record<string, any> = {}
+        const props = s.input_schema?.properties as Record<string, any> || {}
+        for (const [key, prop] of Object.entries(props)) {
+          if (prop.default != null) defaults[key] = prop.default
+        }
+        setValues({ ...defaults, ...(preInputValues || {}) })
+        valuesInitialized = true
       }
-      setValues({ ...defaults, ...(preInputValues || {}) })
 
       const formats = getDeviceFormats(s.input_schema as any)
       setDeviceFormats(formats)
@@ -177,6 +211,18 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
   const handleCollectDeviceData = useCallback(async () => {
     if (!skill || collecting) return
+    // Batch permission pre-check: scan device:* fields, request all required
+    // perms upfront so the user sees one set of prompts instead of a cascade
+    // of per-field failures deep in the flow.
+    const needed = permTypesFromSchema(skill.input_schema as any)
+    if (needed.length > 0) {
+      const res = await requirePermissions(needed)
+      if (!res.ok) {
+        // Gate already showed a settings modal — abort collection.
+        setCollecting(false)
+        return
+      }
+    }
     setCollecting(true)
     // Init all statuses to idle
     const initStatuses: Record<string, 'idle' | 'collecting' | 'done' | 'failed'> = {}
@@ -209,17 +255,15 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
     if (emptyFields.length > 0) {
       showModal(
-        lang === 'zh' ? '部分数据未采集' : 'Some data not collected',
-        (lang === 'zh'
-          ? `以下数据未能采集（可能需要开启权限）：\n\n${emptyFields.join('\n')}\n\n请到手机 设置 → 应用管理 → AgentCab → 权限 中开启相应权限。`
-          : `The following data could not be collected (permissions may be needed):\n\n${emptyFields.join('\n')}\n\nGo to Settings → Apps → AgentCab → Permissions to enable.`),
+        t.skill_partialDataTitle,
+        format(t.skill_partialDataMsg, emptyFields.join('\n')),
         [
-          { text: lang === 'zh' ? '去设置' : 'Open Settings', onPress: () => Linking.openSettings() },
+          { text: t.skill_goSettings, onPress: () => Linking.openSettings() },
           { text: 'OK' },
         ],
       )
     }
-  }, [skill, collecting, deviceFormats, lang])
+  }, [skill, collecting, deviceFormats, t])
 
   const handleFilePicked = useCallback((fieldKey: string, files: PickedFile[]) => {
     setPickedFiles(prev => ({ ...prev, [fieldKey]: files }))
@@ -243,7 +287,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
 
     // Check device data collected
     if (deviceFormats.length > 0 && Object.keys(deviceData).length === 0) {
-      showModal(t.missing, lang === 'zh' ? '请先点击"采集设备数据"' : 'Please collect device data first')
+      showModal(t.missing, t.skill_collectFirst)
       return
     }
 
@@ -311,7 +355,22 @@ export default function SkillDetailScreen({ route, navigation }: any) {
       // Always navigate to result page
       navigation.navigate('TaskResult', { taskId: result.call_id })
     } catch (err: any) {
-      showModal(t.errorTitle, err.message || t.failed)
+      const msg = err?.response?.data?.detail || err.message || t.failed
+      if (msg.includes('email') && msg.includes('verif') || msg.includes('邮箱') && msg.includes('验证')) {
+        showModal(
+          t.errorTitle,
+          msg,
+          [
+            { text: t.cancel, style: 'cancel' },
+            {
+              text: t.skill_verifyNow,
+              onPress: () => navigation.navigate('EmailVerify'),
+            },
+          ]
+        )
+      } else {
+        showModal(t.errorTitle, msg)
+      }
     } finally { setSubmitting(false); setUploadProgress(null) }
   }
 
@@ -407,7 +466,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                 )}
                 <Text style={st.heroAuthorName}>{skill.provider_name}</Text>
                 {skill.provider_skill_count ? (
-                  <Text style={st.heroAuthorMeta}> · {skill.provider_skill_count} {lang === 'zh' ? '个分身' : 'clones'}</Text>
+                  <Text style={st.heroAuthorMeta}> · {skill.provider_skill_count} {t.skill_clonesSuffix}</Text>
                 ) : null}
                 <Icon name="chevron-right" size={12} color={colors.ink300} />
               </TouchableOpacity>
@@ -422,12 +481,12 @@ export default function SkillDetailScreen({ route, navigation }: any) {
             {skill.call_count > 5 && skill.success_count != null && (
               <View style={st.statPill}>
                 <Text style={st.statValue}>{Math.round((skill.success_count / skill.call_count) * 100)}%</Text>
-                <Text style={st.statLabel}>{lang === 'zh' ? '成功' : 'Success'}</Text>
+                <Text style={st.statLabel}>{t.success}</Text>
               </View>
             )}
             <View style={st.statPill}>
               <Text style={[st.statValue, { color: '#fbbf24' }]}>{skill.rating > 0 ? skill.rating.toFixed(1) : '—'}</Text>
-              <Text style={st.statLabel}>{lang === 'zh' ? '评分' : 'Rating'}</Text>
+              <Text style={st.statLabel}>{t.rating}</Text>
             </View>
             {skill.avg_response_time && (() => {
               const sec = parseFloat(skill.avg_response_time.replace('~', '').replace('s', ''))
@@ -435,7 +494,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               return (
                 <View style={st.statPill}>
                   <Text style={st.statValue}>{label}</Text>
-                  <Text style={st.statLabel}>{lang === 'zh' ? '耗时' : 'Speed'}</Text>
+                  <Text style={st.statLabel}>{t.skill_speed}</Text>
                 </View>
               )
             })()}
@@ -477,7 +536,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               }
             }} activeOpacity={0.7}>
             <Text style={[st.segmentText, activeTab === 'history' && st.segmentTextActive]}>
-              {lang === 'zh' ? '记录' : 'History'}
+              {t.skill_history}
             </Text>
           </TouchableOpacity>
           {hasExample && (
@@ -577,7 +636,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                   <TouchableOpacity
                     style={st.callBtnWrap}
                     onPress={() => {
-                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
+                      if (!allFilled) { showModal(t.missing, t.skill_fillRequiredFields); return }
                       handleSubmit()
                     }}
                     disabled={submitting} activeOpacity={0.85}>
@@ -586,7 +645,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                         {submitting
                           ? uploadProgress
                             ? <Text style={st.callBtnText}>Uploading {uploadProgress.current}/{uploadProgress.total}...</Text>
-                            : <><ActivityIndicator color="#fff" size="small" /><Text style={[st.callBtnText, { marginLeft: 8 }]}>Calling...</Text></>
+                            : <><ActivityIndicator color="#fff" size="small" /><Text style={[st.callBtnText, { marginStart: 8 }]}>Calling...</Text></>
                           : <Text style={st.callBtnText}>{t.callApi} · {skill.price_credits}{skill.max_price_credits ? `–${skill.max_price_credits}` : ''} {t.credits}</Text>}
                       </View>
                     </LinearGradient>
@@ -599,7 +658,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                     onPress={() => setShowMoreActions(!showMoreActions)}
                     activeOpacity={0.6}>
                     <Text style={{ fontSize: 12, color: colors.ink500 }}>
-                      {showMoreActions ? (lang === 'zh' ? '收起' : 'Less') : (lang === 'zh' ? '更多操作' : 'More actions')} {showMoreActions ? '▲' : '▼'}
+                      {showMoreActions ? t.skill_collapse : t.skill_moreActions} {showMoreActions ? '▲' : '▼'}
                     </Text>
                   </TouchableOpacity>
 
@@ -608,7 +667,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                   <TouchableOpacity
                     style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
                     onPress={() => {
-                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
+                      if (!allFilled) { showModal(t.missing, t.skill_fillRequiredFields); return }
                       // Check if skill has file_id fields — ask user for input mode
                       const allProps = skill.input_schema?.properties as Record<string, any> || {}
                       const hasFileField = Object.entries(allProps).some(([k, p]: [string, any]) => {
@@ -618,34 +677,31 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                       })
                       if (hasFileField) {
                         showModal(
-                          lang === 'zh' ? '文件获取方式' : 'File Input Mode',
-                          lang === 'zh' ? '快捷调用时如何获取文件？' : 'How to get the file when quick running?',
+                          t.skill_fileInputMode,
+                          t.skill_fileInputModeMsg,
                           [
-                            { text: lang === 'zh' ? '拍照' : 'Camera', onPress: () => {
+                            { text: t.skill_camera, onPress: () => {
                               pin({ id: skillId, name: skill.name, presetValues: values, isShortcut: true, fileInputMode: 'camera' })
-                              setTimeout(() => showModal(lang === 'zh' ? '快捷方式已创建' : 'Shortcut Created', lang === 'zh' ? '点击时将直接打开相机' : 'Will open camera on tap'), 300)
+                              setTimeout(() => showModal(t.skill_shortcutCreated, t.skill_willOpenCamera), 300)
                             }},
-                            { text: lang === 'zh' ? '相册' : 'Gallery', onPress: () => {
+                            { text: t.skill_gallery, onPress: () => {
                               pin({ id: skillId, name: skill.name, presetValues: values, isShortcut: true, fileInputMode: 'gallery' })
-                              setTimeout(() => showModal(lang === 'zh' ? '快捷方式已创建' : 'Shortcut Created', lang === 'zh' ? '点击时将打开相册选择' : 'Will open gallery on tap'), 300)
+                              setTimeout(() => showModal(t.skill_shortcutCreated, t.skill_willOpenGallery), 300)
                             }},
                           ],
                         )
                       } else {
                         pin({ id: skillId, name: skill.name, presetValues: values, isShortcut: true })
-                        showModal(
-                          lang === 'zh' ? '快捷方式已创建' : 'Shortcut Created',
-                          lang === 'zh' ? '已保存到首页快捷操作，点击即可一键调用' : 'Saved to Home quick actions with current parameters',
-                        )
+                        showModal(t.skill_shortcutCreated, t.skill_shortcutSaved)
                       }
                     }}
                     activeOpacity={0.7}>
-                    <Text style={[st.secondaryBtnText, !allFilled && st.secondaryBtnTextDisabled]}>{lang === 'zh' ? '创建快捷方式' : 'Create Shortcut'}</Text>
+                    <Text style={[st.secondaryBtnText, !allFilled && st.secondaryBtnTextDisabled]}>{t.skill_createShortcut}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[st.secondaryBtn, { flex: 1 }, !allFilled && st.secondaryBtnDisabled]}
                     onPress={() => {
-                      if (!allFilled) { showModal(t.missing, lang === 'zh' ? '请先填写所有必填参数' : 'Please fill all required fields first'); return }
+                      if (!allFilled) { showModal(t.missing, t.skill_fillRequiredFields); return }
                       navigation.navigate('CreateAutomation', {
                         preSelectedSkill: skill,
                         preInputValues: values,
@@ -675,7 +731,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
               return (
                 <TouchableOpacity
                   key={call.id}
-                  style={[st.historyCard, { borderLeftWidth: 3, borderLeftColor: accentColor }]}
+                  style={[st.historyCard, { borderStartWidth: 3, borderStartColor: accentColor }]}
                   activeOpacity={0.7}
                   onPress={() => navigation.navigate('TaskResult', { taskId: call.id })}>
                   <View style={st.historyTop}>
@@ -687,7 +743,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                     </View>
                     <View style={[st.historyStatus, { backgroundColor: isOk ? '#ecfdf5' : isFail ? '#fef2f2' : '#eff6ff' }]}>
                       <Text style={{ fontSize: 11, fontWeight: fontWeight.semibold, color: accentColor }}>
-                        {isOk ? (lang === 'zh' ? '完成' : 'Done') : isFail ? (lang === 'zh' ? '失败' : 'Failed') : (lang === 'zh' ? '进行中' : 'Running')}
+                        {isOk ? t.done : isFail ? t.failed : t.running}
                       </Text>
                     </View>
                   </View>
@@ -702,7 +758,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                         <Text style={st.historyMetaText}>{(call.duration_ms / 1000).toFixed(1)}s</Text>
                       </View>
                     )}
-                    <View style={[st.historyMeta, { marginLeft: 'auto' }]}>
+                    <View style={[st.historyMeta, { marginStart: 'auto' }]}>
                       <Icon name="calendar" size={11} color={colors.ink500} />
                       <Text style={st.historyMetaText}>{timeStr}</Text>
                     </View>
@@ -717,7 +773,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
             }) : (
               <View style={{ alignItems: 'center', paddingVertical: 48 }}>
                 <Icon name="inbox" size={36} color={colors.ink300} />
-                <Text style={{ fontSize: 14, color: colors.ink400, marginTop: 12 }}>{lang === 'zh' ? '暂无调用记录' : 'No calls yet'}</Text>
+                <Text style={{ fontSize: 14, color: colors.ink400, marginTop: 12 }}>{t.noCallsYet}</Text>
               </View>
             )}
             {myCalls.length > 0 && callsHasMore && !loadingCalls && (
@@ -736,7 +792,7 @@ export default function SkillDetailScreen({ route, navigation }: any) {
                 {loadingMoreCalls ? (
                   <ActivityIndicator color={colors.primary} size="small" />
                 ) : (
-                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: fontWeight.semibold }}>{lang === 'zh' ? '加载更多' : 'Load more'}</Text>
+                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: fontWeight.semibold }}>{t.skill_loadMore}</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -937,7 +993,7 @@ function ExampleFilesSection({ files, skillId }: { files: any[]; skillId: string
                 ) : (
                   <>
                     <Icon name={isPdf_ ? 'file-text' : isMd ? 'file' : 'globe'} size={28} color={colors.ink400} />
-                    <Text style={{ color: colors.primary, fontSize: 12, marginTop: 4 }}>{isChinese() ? '点击预览' : 'Tap to preview'}</Text>
+                    <Text style={{ color: colors.primary, fontSize: 12, marginTop: 4 }}>{t.taskResult_tapToPreview}</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -967,7 +1023,7 @@ function ExampleFilesSection({ files, skillId }: { files: any[]; skillId: string
           <View style={{ flex: 1, backgroundColor: '#fff' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 48, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
               <TouchableOpacity onPress={() => setPreview(null)}><Icon name="x" size={24} color={colors.ink700} /></TouchableOpacity>
-              <Text style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '500', color: colors.ink950 }} numberOfLines={1}>{preview.filename}</Text>
+              <Text style={{ flex: 1, marginStart: 12, fontSize: 16, fontWeight: '500', color: colors.ink950 }} numberOfLines={1}>{preview.filename}</Text>
             </View>
             {preview.type === 'html' ? (
               <WebView
@@ -979,9 +1035,11 @@ function ExampleFilesSection({ files, skillId }: { files: any[]; skillId: string
                 allowUniversalAccessFromFileURLs={true}
               />
             ) : (
-              <ScrollView style={{ flex: 1, padding: 16 }}>
-                <Text style={{ fontSize: 14, color: colors.ink700, lineHeight: 22 }}>{preview.content || ''}</Text>
-              </ScrollView>
+              <WebView
+                source={{ html: buildMarkdownHtml(preview.content || '') }}
+                style={{ flex: 1 }}
+                originWhitelist={['*']}
+              />
             )}
             <TouchableOpacity
               style={{ position: 'absolute', bottom: 32, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.5)' }}
@@ -997,12 +1055,12 @@ function ExampleFilesSection({ files, skillId }: { files: any[]; skillId: string
                   await ReactNativeBlobUtil.fs.writeFile(destPath, base64, 'base64')
                   await ReactNativeBlobUtil.android.actionViewIntent(destPath, mime)
                 } catch (e: any) {
-                  showModal(isChinese() ? '打开失败' : 'Failed')
+                  showModal(t.taskResult_openFailed)
                 }
               }}>
               <Icon name="share" size={18} color="#fff" />
               <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>
-                {isChinese() ? '用其他应用打开' : 'Open with...'}
+                {t.taskResult_openWith}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1347,7 +1405,7 @@ const st = StyleSheet.create({
   deviceList: { gap: 8, marginBottom: 14 },
   deviceRow: { flexDirection: 'row', alignItems: 'center' },
   deviceStatusIcon: { fontSize: 12, fontWeight: fontWeight.bold, width: 18, textAlign: 'center' },
-  deviceLabel: { fontSize: 13, color: colors.ink800, flex: 1, marginLeft: 6 },
+  deviceLabel: { fontSize: 13, color: colors.ink800, flex: 1, marginStart: 6 },
   deviceStatus: { fontSize: 11, fontWeight: fontWeight.medium },
   collectBtn: { backgroundColor: '#2563eb', borderRadius: 12, paddingVertical: 13, alignItems: 'center' },
   collectBtnDone: { backgroundColor: '#059669' },

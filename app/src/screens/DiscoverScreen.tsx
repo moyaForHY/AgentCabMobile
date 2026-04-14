@@ -29,7 +29,7 @@ import { SkillCardSkeleton } from '../components/Skeleton'
 
 export default function DiscoverScreen({ navigation }: any) {
   const insets = useSafeAreaInsets()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [skills, setSkills] = useState<Skill[]>([])
   const [statuses, setStatuses] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
@@ -217,7 +217,7 @@ export default function DiscoverScreen({ navigation }: any) {
           <View style={s.center}>
             <Icon name="search" size={40} color={colors.ink300} style={{ marginBottom: 12 }} />
             <Text style={s.emptyText}>{t.noApisFound}</Text>
-            <Text style={{ fontSize: 13, color: colors.ink400, marginTop: 4 }}>{lang === 'zh' ? '试试其他关键词或清除筛选' : 'Try different keywords or clear filters'}</Text>
+            <Text style={{ fontSize: 13, color: colors.ink400, marginTop: 4 }}>{t.discover_tryOther}</Text>
           </View>
         }
       />
@@ -246,8 +246,8 @@ const s = StyleSheet.create({
     borderColor: colors.sand200,
     paddingHorizontal: 14,
   },
-  searchIcon: { marginRight: 8 },
-  searchSpinner: { marginLeft: 4 },
+  searchIcon: { marginEnd: 8 },
+  searchSpinner: { marginStart: 4 },
   bookmarkBtn: {
     width: 42, height: 42, borderRadius: radii.md, backgroundColor: colors.sand100,
     justifyContent: 'center' as const, alignItems: 'center' as const,
@@ -332,7 +332,7 @@ const s = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.ink950,
     flex: 1,
-    marginRight: 8,
+    marginEnd: 8,
   },
   statusDot: {
     width: 7,

@@ -13,7 +13,8 @@ import LinearGradient from 'react-native-linear-gradient'
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useI18n } from '../i18n'
+import { useI18n, format } from '../i18n'
+import { weekdaysShort, weekdaysFull } from '../i18n/weekdays'
 import { fetchSkills, fetchSkillById, type Skill } from '../services/api'
 import { useKeyboard } from '../hooks/useKeyboard'
 import DynamicForm from '../components/DynamicForm'
@@ -36,14 +37,9 @@ const INTERVAL_OPTIONS = [
   { label: '12h', minutes: 720, desc: '' },
 ]
 
-const WEEKDAYS_EN = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-const WEEKDAYS_ZH = ['日', '一', '二', '三', '四', '五', '六']
-const WEEKDAY_FULL_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const WEEKDAY_FULL_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-
 export default function CreateAutomationScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const { height: kbHeight } = useKeyboard()
   const editRule = route?.params?.editRule as AutomationRule | undefined
   const preSelectedSkill = route?.params?.preSelectedSkill as Skill | undefined
@@ -125,14 +121,14 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
   const manualSchema = selectedSkill ? filterManualFields(selectedSkill.input_schema) : null
   const hasManualFields = manualSchema && Object.keys(manualSchema.properties || {}).length > 0
 
-  const weekdays = lang === 'zh' ? WEEKDAYS_ZH : WEEKDAYS_EN
-  const weekdaysFull = lang === 'zh' ? WEEKDAY_FULL_ZH : WEEKDAY_FULL_EN
+  const weekdays = weekdaysShort()
+  const weekdaysFullArr = weekdaysFull()
 
   const scheduleDisplay = (() => {
     if (scheduleType === 'daily') return `${t.daily}  ${hour}:${minute}`
-    if (scheduleType === 'weekly') return `${weekdaysFull[weekday]}  ${hour}:${minute}`
+    if (scheduleType === 'weekly') return `${weekdaysFullArr[weekday]}  ${hour}:${minute}`
     const h = Math.round(intervalMinutes / 60)
-    return lang === 'zh' ? `每 ${h} 小时` : `Every ${h} hours`
+    return format(t.createAutomation_everyNHours, h)
   })()
 
   const handleSave = async () => {
@@ -194,7 +190,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
           <>
             <Text style={s.stepNum}>01</Text>
             <Text style={s.stepTitle}>{t.selectSkill}</Text>
-            <Text style={s.stepHint}>{lang === 'zh' ? '选择一个 AI 技能进行自动化' : 'Choose an AI skill to automate'}</Text>
+            <Text style={s.stepHint}>{t.createAutomation_chooseSkill}</Text>
             {skills.map((skill, i) => (
               <SkillCard
                 key={skill.id}
@@ -217,7 +213,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
                 </View>
               </View>
               <View style={s.selectedPriceRow}>
-                <Text style={s.selectedPriceLabel}>{lang === 'zh' ? '每次消耗' : 'Cost per run'}</Text>
+                <Text style={s.selectedPriceLabel}>{t.createAutomation_costPerRun}</Text>
                 <Text style={s.selectedPriceValue}>{selectedSkill.price_credits} <Text style={s.selectedPriceUnit}>{t.credits}</Text></Text>
               </View>
             </View>
@@ -234,7 +230,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
                     onPress={() => setScheduleType(type)}
                     activeOpacity={0.7}>
                     <Text style={[s.pillText, active && s.pillTextActive]}>
-                      {type === 'daily' ? t.daily : type === 'weekly' ? t.weekly : (lang === 'zh' ? '定时' : 'Interval')}
+                      {type === 'daily' ? t.daily : type === 'weekly' ? t.weekly : t.createAutomation_interval}
                     </Text>
                   </TouchableOpacity>
                 )
@@ -246,7 +242,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
               <View style={s.timeCard}>
                 <Text style={s.timeDisplay}>{hour}:{minute}</Text>
                 <View style={s.timeSection}>
-                  <Text style={s.timeSubLabel}>{lang === 'zh' ? '小时' : 'Hour'}</Text>
+                  <Text style={s.timeSubLabel}>{t.createAutomation_hour}</Text>
                   <ScrollView ref={hourScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipScroll}>
                     {HOURS.map(h => (
                       <TouchableOpacity key={h} style={[s.chip, hour === h && s.chipActive]} onPress={() => setHour(h)} activeOpacity={0.7}>
@@ -256,7 +252,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
                   </ScrollView>
                 </View>
                 <View style={s.timeSection}>
-                  <Text style={s.timeSubLabel}>{lang === 'zh' ? '分钟' : 'Minute'}</Text>
+                  <Text style={s.timeSubLabel}>{t.createAutomation_minute}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipScroll}>
                     {MINUTES.map(m => (
                       <TouchableOpacity key={m} style={[s.chip, minute === m && s.chipActive]} onPress={() => setMinute(m)} activeOpacity={0.7}>
@@ -305,10 +301,10 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
             {hasManualFields && (
               <View style={s.paramsCard}>
                 <View style={s.paramsHeader}>
-                  <Text style={s.label}>{lang === 'zh' ? '预设参数' : 'Preset Parameters'}</Text>
+                  <Text style={s.label}>{t.createAutomation_presetParams}</Text>
                 </View>
                 <Text style={s.paramsHint}>
-                  {lang === 'zh' ? '自动化执行时使用以下参数，设备数据自动采集' : 'Used when automation runs. Device data collected automatically.'}
+                  {t.createAutomation_presetDesc}
                 </Text>
                 <DynamicForm
                   schema={manualSchema}
@@ -332,7 +328,7 @@ export default function CreateAutomationScreen({ route, navigation }: any) {
                 <View style={{ flex: 1 }}>
                   <Text style={s.summarySchedule}>{scheduleDisplay}</Text>
                   <Text style={s.summaryCost}>
-                    {selectedSkill.price_credits} {t.credits} / {lang === 'zh' ? '次' : 'run'}
+                    {selectedSkill.price_credits} {t.credits} / {t.createAutomation_runUnit}
                   </Text>
                 </View>
               </View>
@@ -410,7 +406,7 @@ const s = StyleSheet.create({
   selectedTop: { flexDirection: 'row', alignItems: 'flex-start', padding: 16, paddingBottom: 12 },
   selectedDot: {
     width: 10, height: 10, borderRadius: 5, backgroundColor: '#059669',
-    marginRight: 12, marginTop: 5,
+    marginEnd: 12, marginTop: 5,
   },
   selectedName: { fontSize: 16, fontWeight: fontWeight.bold, color: colors.ink950 },
   selectedDesc: { fontSize: 12, color: colors.ink500, marginTop: 3, lineHeight: 17 },
@@ -506,7 +502,7 @@ const s = StyleSheet.create({
   summaryRow: { flexDirection: 'row', alignItems: 'center' },
   summaryIconWrap: {
     width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(37,99,235,0.12)',
-    justifyContent: 'center', alignItems: 'center', marginRight: 14,
+    justifyContent: 'center', alignItems: 'center', marginEnd: 14,
   },
   summaryClockFace: {
     width: 22, height: 22, borderRadius: 11,
@@ -515,11 +511,11 @@ const s = StyleSheet.create({
   },
   summaryClockHand: {
     position: 'absolute', width: 2, height: 7, backgroundColor: colors.primary,
-    borderRadius: 1, bottom: '50%', left: '50%', marginLeft: -1,
+    borderRadius: 1, bottom: '50%', left: '50%', marginStart: -1,
   },
   summaryClockHandM: {
     position: 'absolute', width: 2, height: 5, backgroundColor: colors.primary,
-    borderRadius: 1, bottom: '50%', left: '50%', marginLeft: -1,
+    borderRadius: 1, bottom: '50%', left: '50%', marginStart: -1,
     transform: [{ rotate: '90deg' }, { translateY: -2.5 }],
   },
   summarySchedule: { fontSize: 15, fontWeight: fontWeight.bold, color: colors.ink950 },

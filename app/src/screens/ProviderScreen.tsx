@@ -17,7 +17,7 @@ import SkillCard from '../components/SkillCard'
 
 export default function ProviderScreen({ route, navigation }: any) {
   const { providerId, providerName, providerAvatar, providerBio, providerWebsite, providerTwitter, providerGithub, providerLinkedin, providerWechat, providerYoutube, providerBilibili } = route.params
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ total: 0, calls: 0, avgRating: 0 })
@@ -56,7 +56,7 @@ export default function ProviderScreen({ route, navigation }: any) {
           {providerWebsite ? (
             <TouchableOpacity style={st.socialBadge} onPress={() => Linking.openURL(providerWebsite)}>
               <Icon name="globe" size={13} color={colors.ink600} />
-              <Text style={st.socialText}>{lang === 'zh' ? '网站' : 'Website'}</Text>
+              <Text style={st.socialText}>{t.profile_website}</Text>
             </TouchableOpacity>
           ) : null}
           {providerTwitter ? (
@@ -101,27 +101,27 @@ export default function ProviderScreen({ route, navigation }: any) {
         <View style={st.statsRow}>
           <View style={st.stat}>
             <Text style={st.statValue}>{stats.total}</Text>
-            <Text style={st.statLabel}>{lang === 'zh' ? '分身' : 'Clones'}</Text>
+            <Text style={st.statLabel}>{t.provider_clones}</Text>
           </View>
           <View style={st.statDivider} />
           <View style={st.stat}>
             <Text style={st.statValue}>{stats.calls.toLocaleString()}</Text>
-            <Text style={st.statLabel}>{lang === 'zh' ? '调用' : 'Calls'}</Text>
+            <Text style={st.statLabel}>{t.provider_calls}</Text>
           </View>
           <View style={st.statDivider} />
           <View style={st.stat}>
             <Text style={st.statValue}>{stats.avgRating > 0 ? `★ ${stats.avgRating.toFixed(1)}` : '—'}</Text>
-            <Text style={st.statLabel}>{lang === 'zh' ? '评分' : 'Rating'}</Text>
+            <Text style={st.statLabel}>{t.rating}</Text>
           </View>
         </View>
       </View>
 
       {/* Skills */}
-      <Text style={st.sectionTitle}>{lang === 'zh' ? 'TA 的分身' : 'Their Clones'}</Text>
+      <Text style={st.sectionTitle}>{t.provider_theirClones}</Text>
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />
       ) : skills.length === 0 ? (
-        <Text style={st.empty}>{lang === 'zh' ? '暂无' : 'No Clones yet'}</Text>
+        <Text style={st.empty}>{t.provider_empty}</Text>
       ) : (
         skills.map((skill, i) => (
           <SkillCard

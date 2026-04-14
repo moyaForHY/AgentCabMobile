@@ -100,6 +100,8 @@ export default {
 
   // Wallet
   rechargeViaAlipay: '支付宝充值',
+  rechargeViaStripe: '使用 Stripe 充值',
+  paymentReturnHint: '完成支付后请返回 App，余额会自动到账。',
   selectAmount: '选择金额',
   pay: '支付',
   paymentConfirm: '完成支付后，点击"已支付"验证。',
@@ -137,6 +139,7 @@ export default {
   // Wallet (additional)
   creditsBalance: '积分余额',
   payAmount: '支付 ¥',
+  payAmountUSD: '支付 $',
 
   // Nav titles
   apiDetail: '分身详情',
@@ -225,11 +228,11 @@ export default {
 
   // Onboarding
   onboardingTitle1: '开放的 AI 分身市场',
-  onboardingDesc1: 'AgentCab 是一个开放的 AI 分身市场。任何人可以创建、发布 AI 分身，任何人可以按需调用。每个分身是一个独立的 AI 能力。',
-  onboardingTitle2: '用起来，而不只是聊天',
-  onboardingDesc2: '这些分身不是聊天机器人——它们能真正做事：整理发票、筛简历、检测诈骗、生成PPT、分析数据。调用一次，拿到结果。',
-  onboardingTitle3: '你的手机，AI 的手和脚',
-  onboardingDesc3: '在手机上，分身还能读取短信、通话、相册等数据，并执行操作——创建日程、发送提醒、删除文件。设置自动化，让 AI 持续替你工作。',
+  onboardingDesc1: 'AgentCab 是一个开放的 AI 分身市场。谁都能发布，谁都能调用。每个分身都是一个真正能跑的能力——不是又一个聊天框。',
+  onboardingTitle2: '能干活的分身，不是聊天机器人',
+  onboardingDesc2: '整理账单、筛简历、识别诈骗、做 PPT、跑数据分析……调一次，拿结果。这些分身真的在做事。',
+  onboardingTitle3: '让手机变成 AI 的手',
+  onboardingDesc3: '手机上的分身能读短信、通话、相册，还能动手：建日程、发提醒、整理文件。设置好自动化，AI 就一直替你干。',
   onboardingSkip: '跳过',
   onboardingGetStarted: '开始使用',
 
@@ -249,4 +252,150 @@ export default {
   networkRestored: '网络已恢复',
   serverError: '服务器错误，请稍后重试',
   sessionExpired: '登录已过期，请重新登录',
+
+  // Home
+  home_defaultScriptName: '快捷脚本',
+  home_scriptRunningTitle: '已有脚本在运行',
+  home_scriptRunningMsg: '「{0}」正在运行，是否停止后启动「{1}」？',
+  home_stopAndStart: '停止并启动',
+  home_photoUploadingMsg: '照片已拍摄，正在后台上传并调用...',
+  home_callStartedTitle: '调用成功',
+  home_callStartedMsg: '「{0}」已提交，可在任务列表查看结果',
+  home_shortcuts: '快捷指令',
+  home_manage: '管理',
+  home_gettingStarted: '快速开始',
+  home_browseClones: '浏览分身',
+  home_topUpCredits: '充值积分',
+  home_setupProfile: '设置个人资料',
+  home_enterNewName: '输入新名称',
+  home_save: '保存',
+  home_removeShortcut: '移除快捷方式',
+
+  // TaskResult
+  taskResult_estimated: '预计',
+  taskResult_retryHint: '如果长时间无响应，请尝试刷新',
+  taskResult_rerun: '再次调用',
+  taskResult_openFailed: '打开失败',
+  taskResult_openWith: '用其他应用打开',
+  taskResult_scriptLoadFailed: '脚本加载失败',
+  taskResult_tapToPreview: '点击预览',
+  taskResult_fileExpired: '文件已过期',
+  taskResult_expired: '已过期',
+  taskResult_expiresInDays: '{0}天后过期',
+  taskResult_expiresInHours: '{0}小时后过期',
+  taskResult_expiresInMinutes: '{0}分钟后过期',
+
+  // SkillDetail
+  skill_partialDataTitle: '部分数据未采集',
+  skill_partialDataMsg: '以下数据未能采集（可能需要开启权限）：\n\n{0}\n\n请到手机 设置 → 应用管理 → AgentCab → 权限 中开启相应权限。',
+  skill_goSettings: '去设置',
+  skill_collectFirst: '请先点击"采集设备数据"',
+  skill_verifyNow: '去验证',
+  skill_clonesSuffix: '个分身',
+  skill_speed: '耗时',
+  skill_history: '记录',
+  skill_fillRequiredFields: '请先填写所有必填参数',
+  skill_collapse: '收起',
+  skill_moreActions: '更多操作',
+  skill_fileInputMode: '文件获取方式',
+  skill_fileInputModeMsg: '快捷调用时如何获取文件？',
+  skill_camera: '拍照',
+  skill_gallery: '相册',
+  skill_shortcutCreated: '快捷方式已创建',
+  skill_willOpenCamera: '点击时将直接打开相机',
+  skill_willOpenGallery: '点击时将打开相册选择',
+  skill_shortcutSaved: '已保存到首页快捷操作，点击即可一键调用',
+  skill_createShortcut: '创建快捷方式',
+  skill_loadMore: '加载更多',
+
+  // Profile
+  profile_avatarUpdated: '头像已更新',
+  profile_profileUpdated: '个人资料已更新',
+  profile_website: '网站',
+  profile_verifyShort: '未验证',
+  profile_tapToReset: '点击重置',
+  profile_editProfile: '编辑资料',
+  profile_uploading: '上传中...',
+  profile_changeAvatar: '更换头像',
+  profile_namePlaceholder: '你的名称',
+  profile_bio: '简介',
+  profile_bioPlaceholder: '介绍一下自己...',
+  profile_wechatOfficial: '微信公众号',
+  profile_wechatPlaceholder: '公众号名称',
+  profile_bilibili: 'B站',
+  profile_bilibiliPlaceholder: '空间ID',
+
+  // EmailVerify
+  emailVerify_codeSent: '验证码已发送',
+  emailVerify_checkEmail: '请查看邮箱',
+  emailVerify_sendFailed: '发送失败',
+  emailVerify_hint: '提示',
+  emailVerify_enter6: '请输入6位验证码',
+  emailVerify_verified: '验证成功',
+  emailVerify_verifiedMsg: '邮箱已验证',
+  emailVerify_failed: '验证失败',
+  emailVerify_title: '验证邮箱',
+  emailVerify_desc: '验证码已发送到您的邮箱，请查收',
+  emailVerify_verify: '验证',
+  emailVerify_resend: '重新发送',
+  emailVerify_sending: '发送中...',
+  emailVerify_resendCode: '重新发送验证码',
+
+  // Tasks
+  tasks_waiting: '等待中',
+
+  // Wallet
+  wallet_available: '可用余额',
+  wallet_emptyHint: '使用分身后交易记录会出现在这里',
+
+  // Discover
+  discover_tryOther: '试试其他关键词或清除筛选',
+
+  // CreateAutomation
+  createAutomation_everyNHours: '每 {0} 小时',
+  createAutomation_chooseSkill: '选择一个 AI 技能进行自动化',
+  createAutomation_costPerRun: '每次消耗',
+  createAutomation_interval: '定时',
+  createAutomation_hour: '小时',
+  createAutomation_minute: '分钟',
+  createAutomation_presetParams: '预设参数',
+  createAutomation_presetDesc: '自动化执行时使用以下参数，设备数据自动采集',
+  createAutomation_runUnit: '次',
+
+  // Common
+  edit: '编辑',
+
+  // Provider
+  provider_clones: '分身',
+  provider_calls: '调用',
+  provider_theirClones: 'TA 的分身',
+  provider_empty: '暂无',
+
+  // ScriptExecutor
+  scriptExec_savedTitle: '已保存',
+  scriptExec_savedMsg: '「{0}」已添加到快捷指令',
+  scriptExec_scriptTitle: '自动化脚本',
+  scriptExec_hideCode: '隐藏代码',
+  scriptExec_viewCode: '查看代码',
+  scriptExec_execute: '执行脚本',
+  scriptExec_stop: '停止',
+  scriptExec_stopped: '⏹ 已停止',
+  scriptExec_logs: '日志',
+
+  // Preview
+  preview_saveFailed: '保存失败',
+  preview_loadFailed: '加载失败',
+
+  // TaskPoller
+  taskPoller_complete: '任务完成',
+  taskPoller_completeBody: '{0} 已完成，点击查看结果',
+  taskPoller_failed: '任务失败',
+  taskPoller_failedBody: '{0} 执行失败：{1}',
+  taskPoller_unknownErr: '未知错误',
+
+  // Language / RTL restart
+  language_restartTitle: '需要重启',
+  language_restartMsg: '切换方向需要重启 app 才能生效',
+  language_restartNow: '重启',
+  language_later: '稍后',
 }

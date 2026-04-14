@@ -1,6 +1,7 @@
 import ReactNativeBlobUtil from 'react-native-blob-util'
 import { Platform, Linking } from 'react-native'
 import { getAccessToken } from './storage'
+import { requirePermission } from './permissionGate'
 
 /**
  * Download a file and save to public Downloads via DownloadManager.
@@ -8,6 +9,10 @@ import { getAccessToken } from './storage'
  */
 export async function downloadToDevice(url: string, filename: string, mimeType?: string): Promise<string | null> {
   try {
+    if (Platform.OS === 'android') {
+      const ok = await requirePermission('storage')
+      if (!ok) return null
+    }
     const token = await getAccessToken()
     const mime = mimeType || inferMimeType(filename)
 

@@ -197,51 +197,23 @@ export async function scheduleRule(rule: AutomationRule): Promise<void> {
   const interval = getRepeatInterval(rule.schedule)
   await AlarmSchedulerModule.scheduleAlarm(rule.id, triggerAt, interval)
 
-  // MIUI/Xiaomi: guide user to disable battery restrictions (once)
-  const { getDeviceBrand, isChinese } = require('../utils/i18n')
+  // OEM: guide user to disable battery restrictions (once)
+  const { getDeviceBrand } = require('../utils/i18n')
   const brand = getDeviceBrand()
   if (brand === 'xiaomi' || brand === 'huawei' || brand === 'vivo' || brand === 'oppo') {
     const prompted = await storage.getStringAsync('automation_battery_prompted')
     if (!prompted) {
       await storage.setStringAsync('automation_battery_prompted', '1')
       const { showModal } = require('../components/AppModal')
-      const { Linking } = require('react-native')
-      const zh = isChinese()
-
-      const brandGuide: Record<string, { title: string; msg: string }> = {
-        xiaomi: {
-          title: zh ? '开启后台运行权限' : 'Enable Background Running',
-          msg: zh
-            ? '为确保自动化任务准时执行，请进行以下设置：\n\n1. 自启动：设置 → 应用设置 → 应用管理 → AgentCab → 自启动 → 开启\n2. 省电策略：设置 → 电池 → AgentCab → 无限制\n3. 锁定后台：在最近任务中长按 AgentCab → 锁定'
-            : 'To ensure automations run on time:\n\n1. Autostart: Settings → Apps → AgentCab → Autostart → Enable\n2. Battery: Settings → Battery → AgentCab → No restrictions\n3. Lock in recents: Long press AgentCab in recent tasks → Lock',
-        },
-        huawei: {
-          title: zh ? '开启后台运行权限' : 'Enable Background Running',
-          msg: zh
-            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用和服务 → 应用管理 → AgentCab → 自启动 → 开启\n2. 电池：设置 → 电池 → 应用启动管理 → AgentCab → 手动管理 → 全部允许'
-            : 'Please configure:\n\n1. Autostart: Settings → Apps → AgentCab → Autostart → Enable\n2. Battery: Settings → Battery → App launch → AgentCab → Manual → Allow all',
-        },
-        vivo: {
-          title: zh ? '开启后台运行权限' : 'Enable Background Running',
-          msg: zh
-            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用与权限 → 自启动管理 → AgentCab → 开启\n2. 电池：设置 → 电池 → 后台耗电管理 → AgentCab → 允许后台运行'
-            : 'Please configure:\n\n1. Autostart: Settings → Apps → Autostart → AgentCab → Enable\n2. Battery: Settings → Battery → Background power → AgentCab → Allow',
-        },
-        oppo: {
-          title: zh ? '开启后台运行权限' : 'Enable Background Running',
-          msg: zh
-            ? '请进行以下设置：\n\n1. 自启动：设置 → 应用管理 → 自启动管理 → AgentCab → 开启\n2. 电池：设置 → 电池 → 省电优化 → AgentCab → 关闭优化'
-            : 'Please configure:\n\n1. Autostart: Settings → Apps → Autostart → AgentCab → Enable\n2. Battery: Settings → Battery → Power saving → AgentCab → Disable',
-        },
-      }
-
-      const guide = brandGuide[brand] || brandGuide.xiaomi
+      const { bgRunGuide, automationChrome } = require('../i18n/automation')
+      const guide = bgRunGuide(brand)
+      const chrome = automationChrome()
       showModal(guide.title, guide.msg, [
-        { text: zh ? '去设置' : 'Open Settings', onPress: () => {
+        { text: chrome.goSettings, onPress: () => {
           const { openPermissionEditor } = require('../utils/i18n')
           openPermissionEditor()
         }},
-        { text: zh ? '知道了' : 'Got it', style: 'cancel' as const },
+        { text: chrome.gotIt, style: 'cancel' as const },
       ])
     }
   }
@@ -376,26 +348,8 @@ export function generateRuleId(): string {
   return 'rule_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)
 }
 
-export function formatSchedule(schedule: AutomationRule['schedule'], lang: 'en' | 'zh' = 'en'): string {
-  if (schedule.type === 'daily') {
-    return lang === 'zh' ? `每天 ${schedule.time || '08:00'}` : `Daily at ${schedule.time || '08:00'}`
-  }
-  if (schedule.type === 'weekly') {
-    const days = lang === 'zh'
-      ? ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-      : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    const day = days[schedule.weekday ?? 0]
-    return lang === 'zh'
-      ? `每${day} ${schedule.time || '08:00'}`
-      : `${day} at ${schedule.time || '08:00'}`
-  }
-  if (schedule.type === 'interval') {
-    const mins = schedule.intervalMinutes || 60
-    if (mins >= 60) {
-      const h = mins / 60
-      return lang === 'zh' ? `每 ${h} 小时` : `Every ${h}h`
-    }
-    return lang === 'zh' ? `每 ${mins} 分钟` : `Every ${mins}m`
-  }
-  return ''
+/** @deprecated Use formatScheduleI18n from i18n/automation which reads current lang */
+export function formatSchedule(schedule: AutomationRule['schedule'], _lang?: 'en' | 'zh'): string {
+  const { formatScheduleI18n } = require('../i18n/automation')
+  return formatScheduleI18n(schedule)
 }

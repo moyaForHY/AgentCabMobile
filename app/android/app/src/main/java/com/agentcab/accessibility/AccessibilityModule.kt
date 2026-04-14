@@ -22,6 +22,11 @@ class AccessibilityModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun getCurrentPackage(promise: Promise) {
+        promise.resolve(AgentAccessibilityService.getCurrentPackage())
+    }
+
+    @ReactMethod
     fun openSettings(promise: Promise) {
         try {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)

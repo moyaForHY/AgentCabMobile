@@ -41,7 +41,7 @@ export default function App() {
     return (
       <ErrorBoundary>
         <SafeAreaProvider>
-          <StatusBar barStyle="dark-content" />
+          <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
           <PrivacyAgreement onAccepted={() => setPrivacyAccepted(true)} />
         </SafeAreaProvider>
       </ErrorBoundary>
@@ -51,7 +51,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" />
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
         <I18nProvider>
           <AuthProvider>
             <AppNavigator />

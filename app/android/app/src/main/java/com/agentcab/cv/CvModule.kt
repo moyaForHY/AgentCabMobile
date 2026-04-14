@@ -22,6 +22,17 @@ class CvModule(reactContext: ReactApplicationContext) :
     companion object {
         const val NAME = "CvManager"
         private var openCvLoaded = false
+
+        // 共享最新帧 — 其他模块（PaddleOCR等）可以直接用
+        @Volatile @JvmStatic var sharedLatestBitmap: Bitmap? = null
+        @Volatile @JvmStatic var sharedLatestTs: Long = 0
+        // 锁定帧 — lockFrame() 时截的帧，其他模块也可以用
+        @Volatile @JvmStatic var sharedLockedBitmap: Bitmap? = null
+        // 同步锁 — 防止 recycle 和读取并发
+        @JvmStatic val bitmapLock = Any()
+        @Volatile @JvmStatic var scanIntervalMs = 500L
+        val scanning = AtomicBoolean(false)
+        var scanThread: Thread? = null
     }
 
     override fun getName(): String = NAME
@@ -33,12 +44,23 @@ class CvModule(reactContext: ReactApplicationContext) :
         return openCvLoaded
     }
 
+    // 感知循环维护的最新帧（所有模块共享）
+    @Volatile private var latestPerceptionBitmap: Bitmap? = null
+    @Volatile private var latestPerceptionTs: Long = 0
+
     private fun takeScreenshotSync(callback: (Bitmap?) -> Unit) {
-        // 如果帧已锁定，返回锁定帧的副本
+        // 1. 如果帧已锁定，返回锁定帧的副本
         if (frameLocked.get() && lockedBitmap != null) {
             callback(lockedBitmap!!.copy(lockedBitmap!!.config ?: Bitmap.Config.ARGB_8888, false))
             return
         }
+        // 2. 如果感知循环有新鲜帧（<4秒），直接用
+        val perceptionBmp = latestPerceptionBitmap
+        if (perceptionBmp != null && System.currentTimeMillis() - latestPerceptionTs < 4000) {
+            callback(perceptionBmp.copy(perceptionBmp.config ?: Bitmap.Config.ARGB_8888, false))
+            return
+        }
+        // 3. 否则自己截图
         val mainHandler = Handler(Looper.getMainLooper())
         mainHandler.post { ScriptOverlayService.setVisible(false) }
         mainHandler.postDelayed({
@@ -55,10 +77,50 @@ class CvModule(reactContext: ReactApplicationContext) :
 
     @Volatile private var lockedBitmap: Bitmap? = null
     private val frameLocked = AtomicBoolean(false)
+    /** 暂停 perception SSIM 比对（脚本自身动作期间用，不影响截图共享） */
+    private val perceptionPaused = AtomicBoolean(false)
+
+    @ReactMethod
+    fun pausePerception(promise: Promise) {
+        perceptionPaused.set(true)
+        promise.resolve(true)
+    }
+
+    @ReactMethod
+    fun resumePerception(promise: Promise) {
+        perceptionPaused.set(false)
+        promise.resolve(true)
+    }
 
     /**
      * 锁定当前帧 — 截一次图，后续所有 CV 操作共用这张
      */
+    @ReactMethod
+    fun screenshotBase64(promise: Promise) {
+        if (!AgentAccessibilityService.isRunning() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            promise.resolve(null); return
+        }
+        // 永远走 AccessibilityService 直截，不用 lockedBitmap / perceptionBitmap 缓存。
+        // 调用方拿到的是真实当前屏幕帧。
+        val mainHandler = Handler(Looper.getMainLooper())
+        mainHandler.post { ScriptOverlayService.setVisible(false) }
+        mainHandler.postDelayed({
+            AgentAccessibilityService.takeScreenshot { bitmap ->
+                mainHandler.post { ScriptOverlayService.setVisible(true) }
+                if (bitmap == null) { promise.resolve(null); return@takeScreenshot }
+                try {
+                    val stream = java.io.ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                    bitmap.recycle()
+                    val base64 = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+                    promise.resolve(base64)
+                } catch (e: Exception) {
+                    promise.reject("SCREENSHOT_ERROR", e.message, e)
+                }
+            }
+        }, 100)
+    }
+
     @ReactMethod
     fun lockFrame(promise: Promise) {
         if (!AgentAccessibilityService.isRunning() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -68,6 +130,7 @@ class CvModule(reactContext: ReactApplicationContext) :
             if (bitmap == null) { promise.resolve(false); return@takeScreenshotSync }
             lockedBitmap?.recycle()
             lockedBitmap = bitmap
+            sharedLockedBitmap = bitmap
             frameLocked.set(true)
             promise.resolve(true)
         }
@@ -81,6 +144,7 @@ class CvModule(reactContext: ReactApplicationContext) :
         frameLocked.set(false)
         lockedBitmap?.recycle()
         lockedBitmap = null
+        sharedLockedBitmap = null
         promise.resolve(true)
     }
 
@@ -88,12 +152,11 @@ class CvModule(reactContext: ReactApplicationContext) :
     // 持续感知循环 (Perception Loop)
     // ═══════════════════════════════════════
 
-    private val scanning = AtomicBoolean(false)
-    private var scanThread: Thread? = null
-    private var scanIntervalMs = 500L
-
     // 实时状态 — 脚本可随时读取
     @Volatile var perceptionState = PerceptionState()
+
+    // 粘性标记：检测到变化后置 true，脚本读取后才重置
+    private val stickyChanged = AtomicBoolean(false)
 
     data class PerceptionState(
         var ssim: Double = 0.0,
@@ -103,6 +166,11 @@ class CvModule(reactContext: ReactApplicationContext) :
         var stableCount: Int = 0,        // 连续稳定帧数
         var frameCount: Long = 0,
         var lastUpdateMs: Long = 0,
+        // 变化区域（原图坐标）
+        var changeX: Int = 0,
+        var changeY: Int = 0,
+        var changeW: Int = 0,
+        var changeH: Int = 0,
     )
 
     /**
@@ -112,10 +180,18 @@ class CvModule(reactContext: ReactApplicationContext) :
      */
     @ReactMethod
     fun startPerception(intervalMs: Int, stableThreshold: Double, promise: Promise) {
+        android.util.Log.d("CvPerception", "startPerception called: interval=$intervalMs scanning=${scanning.get()}")
         if (!ensureOpenCv()) { promise.reject("OPENCV_FAILED", "OpenCV init failed"); return }
-        if (scanning.get()) { promise.resolve(true); return }
+        if (scanning.get()) {
+            // 更新间隔
+            scanIntervalMs = intervalMs.toLong()
+            android.util.Log.d("CvPerception", "Updated interval to $scanIntervalMs")
+            promise.resolve(true)
+            return
+        }
 
         scanIntervalMs = intervalMs.toLong()
+        android.util.Log.d("CvPerception", "Starting new perception loop: interval=$scanIntervalMs")
         scanning.set(true)
 
         scanThread = thread(name = "CvPerception", isDaemon = true) {
@@ -128,21 +204,40 @@ class CvModule(reactContext: ReactApplicationContext) :
                         continue
                     }
 
-                    // 截图（同步等待）
+                    // 截图（隐藏悬浮窗避免 OCR 误识别）
                     var bitmap: Bitmap? = null
                     val latch = java.util.concurrent.CountDownLatch(1)
                     val mainHandler = Handler(Looper.getMainLooper())
-                    mainHandler.post { ScriptOverlayService.setVisible(false) }
+                    mainHandler.post {
+                        ScriptOverlayService.setVisible(false)
+                    }
                     mainHandler.postDelayed({
                         AgentAccessibilityService.takeScreenshot { bmp ->
-                            mainHandler.post { ScriptOverlayService.setVisible(true) }
                             bitmap = bmp
+                            mainHandler.post { ScriptOverlayService.setVisible(true) }
                             latch.countDown()
                         }
-                    }, 50)
+                    }, 150)
                     latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
 
-                    val bmp = bitmap ?: continue
+                    if (bitmap == null) {
+                        android.util.Log.w("CvPerception", "截图失败 (null)")
+                        continue
+                    }
+                    val bmp = bitmap!!
+
+                    android.util.Log.d("CvPerception", "截图 ${bmp.width}x${bmp.height} sticky=${stickyChanged.get()}")
+
+                    // 保存最新帧供所有模块使用
+                    val frameCopy = bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
+                    latestPerceptionBitmap?.recycle()
+                    latestPerceptionBitmap = frameCopy
+                    latestPerceptionTs = System.currentTimeMillis()
+                    synchronized(bitmapLock) {
+                        sharedLatestBitmap?.recycle()
+                        sharedLatestBitmap = frameCopy.copy(frameCopy.config ?: Bitmap.Config.ARGB_8888, false)
+                        sharedLatestTs = System.currentTimeMillis()
+                    }
 
                     // 转灰度并缩小
                     val current = Mat()
@@ -153,18 +248,57 @@ class CvModule(reactContext: ReactApplicationContext) :
                     Imgproc.resize(current, small, Size(current.cols() / 4.0, current.rows() / 4.0))
                     current.release()
 
+                    // 暂停状态（脚本正在执行截图等动作）跳过 SSIM 比对，
+                    // 避免脚本自身动作造成的屏幕变化被误判为新消息
+                    if (perceptionPaused.get()) {
+                        prevFrame?.release()
+                        prevFrame = small
+                        continue
+                    }
+
                     if (prevFrame != null) {
                         val score = computeSSIM(prevFrame!!, small)
                         val stable = score > stableThreshold
 
+                        // 计算变化区域
+                        var cx = 0; var cy = 0; var cw = 0; var ch = 0
+                        if (!stable) {
+                            stickyChanged.set(true)
+                            try {
+                                val diff = Mat()
+                                Core.absdiff(prevFrame, small, diff)
+                                val thresh = Mat()
+                                Imgproc.threshold(diff, thresh, 25.0, 255.0, Imgproc.THRESH_BINARY)
+                                diff.release()
+                                // 找变化像素的包围框
+                                val points = Mat()
+                                Core.findNonZero(thresh, points)
+                                thresh.release()
+                                if (!points.empty()) {
+                                    val rect = Imgproc.boundingRect(points)
+                                    // 缩小了4倍，还原到原图坐标
+                                    cx = rect.x * 4; cy = rect.y * 4
+                                    cw = rect.width * 4; ch = rect.height * 4
+                                }
+                                points.release()
+                            } catch (_: Exception) {}
+                        }
+
+                        android.util.Log.d("CvPerception", "ssim=${String.format("%.4f", score)} stable=$stable sticky=${stickyChanged.get()}" +
+                            if (!stable) " change=($cx,$cy,${cw}x$ch)" else "")
+
                         perceptionState = perceptionState.copy(
                             ssim = score,
                             isStable = stable,
-                            hasChanged = !stable,
+                            hasChanged = stickyChanged.get(),
                             changeCount = if (!stable) perceptionState.changeCount + 1 else 0,
-                            stableCount = if (stable) perceptionState.stableCount + 1 else 0,
+                            stableCount = if (stable && stickyChanged.get()) perceptionState.stableCount + 1 else if (stable) perceptionState.stableCount + 1 else 0,
                             frameCount = perceptionState.frameCount + 1,
                             lastUpdateMs = System.currentTimeMillis(),
+                            changeX = if (!stable) cx else perceptionState.changeX,
+                            changeY = if (!stable) cy else perceptionState.changeY,
+                            changeW = if (!stable) cw else perceptionState.changeW,
+                            changeH = if (!stable) ch else perceptionState.changeH,
                         )
                         prevFrame!!.release()
                     } else {
@@ -175,6 +309,7 @@ class CvModule(reactContext: ReactApplicationContext) :
                     }
                     prevFrame = small
 
+                    android.util.Log.d("CvPerception", "sleep ${scanIntervalMs}ms")
                     Thread.sleep(scanIntervalMs)
                 } catch (e: InterruptedException) {
                     break
@@ -212,7 +347,21 @@ class CvModule(reactContext: ReactApplicationContext) :
             putInt("stableCount", s.stableCount)
             putDouble("frameCount", s.frameCount.toDouble())
             putDouble("lastUpdateMs", s.lastUpdateMs.toDouble())
+            putInt("changeX", s.changeX)
+            putInt("changeY", s.changeY)
+            putInt("changeW", s.changeW)
+            putInt("changeH", s.changeH)
         })
+    }
+
+    /**
+     * 确认变化已处理 — 重置粘性标记
+     */
+    @ReactMethod
+    fun ackChange(promise: Promise) {
+        stickyChanged.set(false)
+        perceptionState = perceptionState.copy(hasChanged = false, stableCount = 0)
+        promise.resolve(true)
     }
 
     // ═══════════════════════════════════════
@@ -222,44 +371,55 @@ class CvModule(reactContext: ReactApplicationContext) :
     private var lastFrame: Mat? = null
 
     @ReactMethod
-    fun ssim(promise: Promise) {
+    fun ssim(b64: String?, promise: Promise) {
         if (!ensureOpenCv()) {
             promise.reject("OPENCV_FAILED", "OpenCV init failed")
             return
         }
+
+        val finish: (Bitmap?) -> Unit = { bitmap ->
+            if (bitmap == null) {
+                promise.reject("SCREENSHOT_FAILED", "Could not decode / take screenshot")
+            } else {
+                val current = Mat()
+                Utils.bitmapToMat(bitmap, current)
+                bitmap.recycle()
+                Imgproc.cvtColor(current, current, Imgproc.COLOR_RGBA2GRAY)
+                val small = Mat()
+                Imgproc.resize(current, small, Size(current.cols() / 4.0, current.rows() / 4.0))
+                current.release()
+
+                val prev = lastFrame
+                lastFrame = small.clone()
+
+                if (prev == null) {
+                    small.release()
+                    promise.resolve(0.0)
+                } else {
+                    val score = computeSSIM(prev, small)
+                    prev.release()
+                    small.release()
+                    promise.resolve(score)
+                }
+            }
+        }
+
+        if (!b64.isNullOrEmpty()) {
+            try {
+                val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                finish(bmp)
+            } catch (e: Exception) {
+                promise.reject("DECODE_FAILED", e.message, e)
+            }
+            return
+        }
+
         if (!AgentAccessibilityService.isRunning() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             promise.reject("NOT_AVAILABLE", "Accessibility or Android version not supported")
             return
         }
-
-        takeScreenshotSync { bitmap ->
-            if (bitmap == null) {
-                promise.reject("SCREENSHOT_FAILED", "Could not take screenshot")
-                return@takeScreenshotSync
-            }
-            val current = Mat()
-            Utils.bitmapToMat(bitmap, current)
-            bitmap.recycle()
-            Imgproc.cvtColor(current, current, Imgproc.COLOR_RGBA2GRAY)
-            // 缩小以加速
-            val small = Mat()
-            Imgproc.resize(current, small, Size(current.cols() / 4.0, current.rows() / 4.0))
-            current.release()
-
-            val prev = lastFrame
-            lastFrame = small.clone()
-
-            if (prev == null) {
-                small.release()
-                promise.resolve(0.0) // 第一帧没有对比
-                return@takeScreenshotSync
-            }
-
-            val score = computeSSIM(prev, small)
-            prev.release()
-            small.release()
-            promise.resolve(score)
-        }
+        takeScreenshotSync(finish)
     }
 
     private fun computeSSIM(img1: Mat, img2: Mat): Double {
@@ -405,6 +565,248 @@ class CvModule(reactContext: ReactApplicationContext) :
     }
 
     /**
+     * 基于形状的图标定位 — 轮廓 + Hu 矩 (matchShapes)
+     * 对模板图标二值化取最大外轮廓，在截屏里找所有轮廓，按面积/圆度/形状得分过滤。
+     * 天然抗缩放/旋转，不依赖颜色和像素级对齐，适合 `+`、齿轮、箭头这类符号图标。
+     *
+     * options (可选):
+     *   - minArea / maxArea: 候选轮廓面积范围 (px^2, 默认 100..20000)
+     *   - minCircularity: 圆度下限 0..1 (默认 0)，要求外轮廓接近圆用 0.7+
+     *   - shapeThreshold: matchShapes 距离上限 (默认 0.15，越小越严)
+     *   - maxResults: 最多返回数 (默认 10)
+     *   - invert: 模板/截屏二值化时是否反相 (默认 true — 暗图标亮背景)
+     * 返回 { found, matches: [{x,y,w,h,cx,cy,score,area}] }
+     */
+    @ReactMethod
+    fun findIconByShape(templateBase64: String, options: ReadableMap?, promise: Promise) {
+        if (!ensureOpenCv()) {
+            promise.reject("OPENCV_FAILED", "OpenCV init failed")
+            return
+        }
+
+        val minArea = if (options?.hasKey("minArea") == true) options.getDouble("minArea") else 100.0
+        val maxArea = if (options?.hasKey("maxArea") == true) options.getDouble("maxArea") else 20000.0
+        val minCircularity = if (options?.hasKey("minCircularity") == true) options.getDouble("minCircularity") else 0.0
+        val shapeThreshold = if (options?.hasKey("shapeThreshold") == true) options.getDouble("shapeThreshold") else 0.15
+        val maxResults = if (options?.hasKey("maxResults") == true) options.getInt("maxResults") else 10
+        val invert = if (options?.hasKey("invert") == true) options.getBoolean("invert") else true
+
+        takeScreenshotSync { bitmap ->
+            if (bitmap == null) {
+                promise.reject("SCREENSHOT_FAILED", "Could not take screenshot")
+                return@takeScreenshotSync
+            }
+            try {
+                val templateBytes = android.util.Base64.decode(templateBase64, android.util.Base64.DEFAULT)
+                val templateBitmap = android.graphics.BitmapFactory.decodeByteArray(templateBytes, 0, templateBytes.size)
+                if (templateBitmap == null) {
+                    bitmap.recycle()
+                    promise.resolve(WritableNativeMap().apply {
+                        putBoolean("found", false)
+                        putArray("matches", WritableNativeArray())
+                    })
+                    return@takeScreenshotSync
+                }
+
+                val screen = Mat()
+                val template = Mat()
+                Utils.bitmapToMat(bitmap, screen)
+                Utils.bitmapToMat(templateBitmap, template)
+                bitmap.recycle()
+                templateBitmap.recycle()
+
+                val screenGray = Mat()
+                val templateGray = Mat()
+                Imgproc.cvtColor(screen, screenGray, Imgproc.COLOR_RGBA2GRAY)
+                Imgproc.cvtColor(template, templateGray, Imgproc.COLOR_RGBA2GRAY)
+                screen.release(); template.release()
+
+                Imgproc.GaussianBlur(screenGray, screenGray, Size(3.0, 3.0), 0.0)
+
+                val thrFlag = (if (invert) Imgproc.THRESH_BINARY_INV else Imgproc.THRESH_BINARY) or Imgproc.THRESH_OTSU
+
+                val templateBw = Mat()
+                Imgproc.threshold(templateGray, templateBw, 0.0, 255.0, thrFlag)
+                templateGray.release()
+
+                val screenBw = Mat()
+                Imgproc.threshold(screenGray, screenBw, 0.0, 255.0, thrFlag)
+                screenGray.release()
+
+                val tmplContours = ArrayList<MatOfPoint>()
+                Imgproc.findContours(templateBw, tmplContours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
+                templateBw.release()
+                if (tmplContours.isEmpty()) {
+                    screenBw.release()
+                    promise.resolve(WritableNativeMap().apply {
+                        putBoolean("found", false)
+                        putArray("matches", WritableNativeArray())
+                    })
+                    return@takeScreenshotSync
+                }
+                val tmplContour = tmplContours.maxByOrNull { Imgproc.contourArea(it) }!!
+
+                val screenContours = ArrayList<MatOfPoint>()
+                Imgproc.findContours(screenBw, screenContours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
+                screenBw.release()
+
+                data class Hit(val score: Double, val rect: Rect, val area: Double)
+                val hits = ArrayList<Hit>()
+
+                for (c in screenContours) {
+                    val area = Imgproc.contourArea(c)
+                    if (area < minArea || area > maxArea) { c.release(); continue }
+
+                    if (minCircularity > 0.0) {
+                        val peri = Imgproc.arcLength(MatOfPoint2f(*c.toArray()), true)
+                        if (peri <= 1e-3) { c.release(); continue }
+                        val circ = 4.0 * Math.PI * area / (peri * peri)
+                        if (circ < minCircularity) { c.release(); continue }
+                    }
+
+                    val score = Imgproc.matchShapes(c, tmplContour, Imgproc.CONTOURS_MATCH_I2, 0.0)
+                    if (score <= shapeThreshold) {
+                        hits.add(Hit(score, Imgproc.boundingRect(c), area))
+                    }
+                    c.release()
+                }
+                tmplContour.release()
+                for (c in tmplContours) c.release()
+
+                val sorted = hits.sortedBy { it.score }.take(maxResults)
+                val arr = WritableNativeArray()
+                for (h in sorted) {
+                    arr.pushMap(WritableNativeMap().apply {
+                        putInt("x", h.rect.x)
+                        putInt("y", h.rect.y)
+                        putInt("w", h.rect.width)
+                        putInt("h", h.rect.height)
+                        putInt("cx", h.rect.x + h.rect.width / 2)
+                        putInt("cy", h.rect.y + h.rect.height / 2)
+                        putDouble("score", h.score)
+                        putDouble("area", h.area)
+                    })
+                }
+
+                promise.resolve(WritableNativeMap().apply {
+                    putBoolean("found", sorted.isNotEmpty())
+                    putArray("matches", arr)
+                })
+            } catch (e: Exception) {
+                promise.reject("SHAPE_MATCH_FAILED", e.message, e)
+            }
+        }
+    }
+
+    /**
+     * 特征点匹配 — 用 ORB 特征点检测，不受缩放/旋转影响
+     * 返回 {x, y, found, matchCount, totalKeypoints}
+     */
+    @ReactMethod
+    fun featureMatch(templateBase64: String, minMatches: Int, promise: Promise) {
+        if (!ensureOpenCv()) { promise.reject("OPENCV_FAILED", "OpenCV init failed"); return }
+
+        takeScreenshotSync { bitmap ->
+            if (bitmap == null) { promise.reject("SCREENSHOT_FAILED", "Failed"); return@takeScreenshotSync }
+            try {
+                val templateBytes = android.util.Base64.decode(templateBase64, android.util.Base64.DEFAULT)
+                val templateBitmap = android.graphics.BitmapFactory.decodeByteArray(templateBytes, 0, templateBytes.size)
+                if (templateBitmap == null) {
+                    bitmap.recycle()
+                    promise.resolve(WritableNativeMap().apply {
+                        putInt("x", 0); putInt("y", 0); putBoolean("found", false)
+                        putInt("matchCount", 0); putInt("totalKeypoints", 0)
+                    })
+                    return@takeScreenshotSync
+                }
+
+                val screenMat = Mat()
+                val templateMat = Mat()
+                Utils.bitmapToMat(bitmap, screenMat)
+                Utils.bitmapToMat(templateBitmap, templateMat)
+                bitmap.recycle()
+                templateBitmap.recycle()
+
+                // 转灰度
+                val screenGray = Mat()
+                val templateGray = Mat()
+                Imgproc.cvtColor(screenMat, screenGray, Imgproc.COLOR_RGBA2GRAY)
+                Imgproc.cvtColor(templateMat, templateGray, Imgproc.COLOR_RGBA2GRAY)
+                screenMat.release()
+                templateMat.release()
+
+                // ORB 特征检测
+                val orb = org.opencv.features2d.ORB.create(500)
+                val kp1 = org.opencv.core.MatOfKeyPoint()
+                val kp2 = org.opencv.core.MatOfKeyPoint()
+                val desc1 = Mat()
+                val desc2 = Mat()
+                orb.detectAndCompute(templateGray, Mat(), kp1, desc1)
+                orb.detectAndCompute(screenGray, Mat(), kp2, desc2)
+                templateGray.release()
+                screenGray.release()
+
+                if (desc1.empty() || desc2.empty()) {
+                    promise.resolve(WritableNativeMap().apply {
+                        putInt("x", 0); putInt("y", 0); putBoolean("found", false)
+                        putInt("matchCount", 0); putInt("totalKeypoints", kp1.toList().size)
+                    })
+                    desc1.release(); desc2.release(); kp1.release(); kp2.release()
+                    return@takeScreenshotSync
+                }
+
+                // BF 匹配
+                val matcher = org.opencv.features2d.BFMatcher.create(org.opencv.core.Core.NORM_HAMMING, true)
+                val matches = org.opencv.core.MatOfDMatch()
+                matcher.match(desc1, desc2, matches)
+                desc1.release(); desc2.release()
+
+                val matchList = matches.toList().sortedBy { it.distance }
+                matches.release()
+
+                // 过滤好的匹配（距离 < 中位数 * 0.7）
+                val goodMatches = if (matchList.size > 4) {
+                    val median = matchList[matchList.size / 2].distance
+                    matchList.filter { it.distance < median * 0.7 }
+                } else {
+                    matchList
+                }
+
+                val found = goodMatches.size >= minMatches
+                var cx = 0
+                var cy = 0
+
+                if (found && goodMatches.isNotEmpty()) {
+                    // 计算匹配区域中心
+                    val kp2List = kp2.toList()
+                    var sumX = 0.0
+                    var sumY = 0.0
+                    for (m in goodMatches) {
+                        val pt = kp2List[m.trainIdx].pt
+                        sumX += pt.x
+                        sumY += pt.y
+                    }
+                    cx = (sumX / goodMatches.size).toInt()
+                    cy = (sumY / goodMatches.size).toInt()
+                }
+
+                kp1.release(); kp2.release()
+
+                promise.resolve(WritableNativeMap().apply {
+                    putInt("x", cx)
+                    putInt("y", cy)
+                    putBoolean("found", found)
+                    putInt("matchCount", goodMatches.size)
+                    putInt("totalKeypoints", matchList.size)
+                })
+            } catch (e: Exception) {
+                bitmap.recycle()
+                promise.reject("FEATURE_MATCH_FAILED", e.message, e)
+            }
+        }
+    }
+
+    /**
      * 屏幕是否稳定 — 连续两帧 SSIM > threshold
      */
     @ReactMethod
@@ -543,22 +945,46 @@ class CvModule(reactContext: ReactApplicationContext) :
                 val safeW = width.coerceAtMost(mat.cols() - safeX)
                 val safeH = height.coerceAtMost(mat.rows() - safeY)
 
-                val roi = Mat(mat, Rect(safeX, safeY, safeW, safeH))
-                val mean = Core.mean(roi)
+                // 众数颜色（量化到32阶，取出现最多的）
+                val colorCounts = mutableMapOf<Int, Int>()
+                val step = Math.max(1, Math.min(safeW, safeH) / 20)
+                for (py in safeY until safeY + safeH step step) {
+                    for (px in safeX until safeX + safeW step step) {
+                        val sx = px.coerceIn(0, mat.cols() - 1)
+                        val sy = py.coerceIn(0, mat.rows() - 1)
+                        val pixel = mat.get(sy, sx)
+                        val qr = ((pixel[0].toInt()) / 32) * 32
+                        val qg = ((pixel[1].toInt()) / 32) * 32
+                        val qb = ((pixel[2].toInt()) / 32) * 32
+                        val key = (qr shl 16) or (qg shl 8) or qb
+                        colorCounts[key] = (colorCounts[key] ?: 0) + 1
+                    }
+                }
+                val totalPixels = colorCounts.values.sum()
+                val majorityEntry = colorCounts.maxByOrNull { it.value }
+                val majorityKey = majorityEntry?.key ?: 0
+                val majorityCount = majorityEntry?.value ?: 0
+                val r = (majorityKey shr 16) and 0xFF
+                val g = (majorityKey shr 8) and 0xFF
+                val b = majorityKey and 0xFF
 
-                val r = mean.`val`[0].toInt()  // RGBA
-                val g = mean.`val`[1].toInt()
-                val b = mean.`val`[2].toInt()
+                // 众数占比（纯色气泡接近 1.0，图片 < 0.3）
+                val dominance = if (totalPixels > 0) majorityCount.toDouble() / totalPixels else 0.0
+                // 颜色种类数（纯色气泡 < 10，图片 > 30）
+                val colorCount = colorCounts.size
 
-                mat.release(); roi.release()
+                mat.release()
 
                 promise.resolve(WritableNativeMap().apply {
                     putInt("r", r)
                     putInt("g", g)
                     putInt("b", b)
+                    putDouble("dominance", dominance)
+                    putInt("colorCount", colorCount)
                     putBoolean("isGreen", g > 180 && g > r)
                     putBoolean("isWhite", r > 220 && g > 220 && b > 220)
                     putBoolean("isGray", r in 130..200 && g in 130..200 && b in 130..200 && Math.abs(r - g) < 20)
+                    putBoolean("isImage", dominance < 0.3 && colorCount > 20)
                 })
             } catch (e: Exception) {
                 promise.reject("COLOR_FAILED", e.message, e)
@@ -573,7 +999,7 @@ class CvModule(reactContext: ReactApplicationContext) :
      * 返回 [{x, y, width, height, cx, cy, r, g, b, relX, relY, relW, relH, ratio}]
      */
     @ReactMethod
-    fun detectElements(minAreaRatio: Double, maxResults: Int, promise: Promise) {
+    fun detectElements(minAreaRatio: Double, maxResults: Int, dilateSize: Int, cannyLow: Double, cannyHigh: Double, promise: Promise) {
         if (!ensureOpenCv() || !AgentAccessibilityService.isRunning() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             promise.resolve(WritableNativeArray())
             return
@@ -591,15 +1017,19 @@ class CvModule(reactContext: ReactApplicationContext) :
                 val gray = Mat()
                 Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
                 val edges = Mat()
-                Imgproc.Canny(gray, edges, 40.0, 120.0)
-                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-                Imgproc.dilate(edges, edges, kernel)
+                Imgproc.Canny(gray, edges, cannyLow, cannyHigh)
+                if (dilateSize > 0) {
+                    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(dilateSize.toDouble(), dilateSize.toDouble()))
+                    Imgproc.dilate(edges, edges, kernel)
+                    kernel.release()
+                }
 
                 val contours = mutableListOf<MatOfPoint>()
                 val hierarchy = Mat()
                 Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
-                data class Element(val rect: Rect, val r: Int, val g: Int, val b: Int, val area: Int)
+                data class ColorEntry(val r: Int, val g: Int, val b: Int, val ratio: Double)
+                data class Element(val rect: Rect, val r: Int, val g: Int, val b: Int, val area: Int, val dominance: Double, val colorCount: Int, val topColors: List<ColorEntry>)
                 val elements = mutableListOf<Element>()
                 val minArea = (screenArea * minAreaRatio).toInt()
 
@@ -609,13 +1039,43 @@ class CvModule(reactContext: ReactApplicationContext) :
                     if (area < minArea) continue
                     if (rect.width > screenW * 0.98 && rect.height > screenH * 0.9) continue
 
-                    val roi = Mat(src, rect)
-                    val mean = Core.mean(roi)
-                    roi.release()
+                    // 采样颜色分布
+                    val colorCounts = mutableMapOf<Int, Int>()
+                    val step = Math.max(1, Math.min(rect.width, rect.height) / 15)
+                    for (py in rect.y until rect.y + rect.height step step) {
+                        for (px in rect.x until rect.x + rect.width step step) {
+                            val sx = px.coerceIn(0, src.cols() - 1)
+                            val sy = py.coerceIn(0, src.rows() - 1)
+                            val pixel = src.get(sy, sx)
+                            val qr = ((pixel[0].toInt()) / 4) * 4
+                            val qg = ((pixel[1].toInt()) / 4) * 4
+                            val qb = ((pixel[2].toInt()) / 4) * 4
+                            val key = (qr shl 16) or (qg shl 8) or qb
+                            colorCounts[key] = (colorCounts[key] ?: 0) + 1
+                        }
+                    }
+                    val totalPx = colorCounts.values.sum()
+                    val majorityEntry = colorCounts.maxByOrNull { it.value }
+                    val majorityKey = majorityEntry?.key ?: 0
+                    val majorityCount = majorityEntry?.value ?: 0
+                    val elR = (majorityKey shr 16) and 0xFF
+                    val elG = (majorityKey shr 8) and 0xFF
+                    val elB = majorityKey and 0xFF
+                    val dominance = if (totalPx > 0) majorityCount.toDouble() / totalPx else 0.0
 
-                    elements.add(Element(
-                        rect, mean.`val`[0].toInt(), mean.`val`[1].toInt(), mean.`val`[2].toInt(), area
-                    ))
+                    // Top N 颜色（按占比降序）
+                    val topColors = colorCounts.entries
+                        .sortedByDescending { it.value }
+                        .take(5)
+                        .map { entry ->
+                            val cr = (entry.key shr 16) and 0xFF
+                            val cg = (entry.key shr 8) and 0xFF
+                            val cb = entry.key and 0xFF
+                            val ratio = if (totalPx > 0) entry.value.toDouble() / totalPx else 0.0
+                            ColorEntry(cr, cg, cb, ratio)
+                        }
+
+                    elements.add(Element(rect, elR, elG, elB, area, dominance, colorCounts.size, topColors))
                 }
 
                 elements.sortByDescending { it.area }
@@ -639,10 +1099,24 @@ class CvModule(reactContext: ReactApplicationContext) :
                         putDouble("relW", r.width.toDouble() / screenW)
                         putDouble("relH", r.height.toDouble() / screenH)
                         putDouble("ratio", r.width.toDouble() / r.height.toDouble())
+                        putDouble("dominance", el.dominance)
+                        putInt("colorCount", el.colorCount)
+                        // topColors 数组
+                        val colorsArr = WritableNativeArray()
+                        for (c in el.topColors) {
+                            colorsArr.pushMap(WritableNativeMap().apply {
+                                putInt("r", c.r)
+                                putInt("g", c.g)
+                                putInt("b", c.b)
+                                putDouble("ratio", c.ratio)
+                            })
+                        }
+                        putArray("topColors", colorsArr)
+                        putBoolean("isImage", el.dominance < 0.3 && el.colorCount > 20)
                     })
                 }
 
-                src.release(); gray.release(); edges.release(); hierarchy.release(); kernel.release()
+                src.release(); gray.release(); edges.release(); hierarchy.release()
                 contours.forEach { it.release() }
                 bitmap.recycle()
 
@@ -738,6 +1212,100 @@ class CvModule(reactContext: ReactApplicationContext) :
     }
 
     // ═══════════════════════════════════════
+    // 长截屏拼接 — 模板匹配检测重叠 → 裁剪 → vconcat
+    // ═══════════════════════════════════════
+
+    @ReactMethod
+    fun stitchImages(imagesB64: com.facebook.react.bridge.ReadableArray, promise: Promise) {
+        if (!ensureOpenCv()) { promise.reject("OPENCV_FAIL", "OpenCV init failed"); return }
+        val n = imagesB64.size()
+        if (n == 0) { promise.resolve(""); return }
+        if (n == 1) { promise.resolve(imagesB64.getString(0)); return }
+
+        val mats = mutableListOf<Mat>()
+        val parts = mutableListOf<Mat>()
+        var stitched: Mat? = null
+        try {
+            for (i in 0 until n) {
+                val b64 = imagesB64.getString(i) ?: continue
+                val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw IllegalArgumentException("decode failed at index $i")
+                val mat = Mat()
+                Utils.bitmapToMat(bmp, mat)
+                Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2RGB)
+                bmp.recycle()
+                mats.add(mat)
+            }
+
+            val width = mats[0].cols()
+            // 第一张完整保留
+            parts.add(mats[0].clone())
+
+            for (i in 0 until mats.size - 1) {
+                val a = mats[i]
+                val b = mats[i + 1]
+                val hA = a.rows()
+                val hB = b.rows()
+                // 取 a 底部 150 像素做模板
+                val stripH = minOf(150, hA / 3, hB / 3)
+                if (stripH <= 10) {
+                    parts.add(b.clone())
+                    continue
+                }
+                val template = a.submat(hA - stripH, hA, 0, width)
+                // 在 b 的上半部分 + 模板高度范围内搜
+                val searchEnd = minOf(hB, hB / 2 + stripH + 50)
+                val searchArea = b.submat(0, searchEnd, 0, width)
+                val result = Mat()
+                Imgproc.matchTemplate(searchArea, template, result, Imgproc.TM_CCOEFF_NORMED)
+                val mm = Core.minMaxLoc(result)
+                val matchY = mm.maxLoc.y.toInt()
+                val score = mm.maxVal
+                android.util.Log.d(NAME, "stitch $i→${i + 1}: score=$score matchY=$matchY stripH=$stripH")
+                result.release()
+                searchArea.release()
+                template.release()
+
+                val overlapEnd = matchY + stripH
+                if (score > 0.6 && overlapEnd in 1 until hB) {
+                    val nonOverlap = b.submat(overlapEnd, hB, 0, width)
+                    parts.add(nonOverlap.clone())
+                    nonOverlap.release()
+                } else {
+                    // 没匹配上（滑动过头 / 全新内容）就整张追加
+                    parts.add(b.clone())
+                }
+            }
+
+            // vconcat
+            stitched = Mat()
+            Core.vconcat(parts, stitched)
+
+            // 转回 base64
+            val bmpOut = Bitmap.createBitmap(stitched.cols(), stitched.rows(), Bitmap.Config.ARGB_8888)
+            val rgba = Mat()
+            Imgproc.cvtColor(stitched, rgba, Imgproc.COLOR_RGB2RGBA)
+            Utils.matToBitmap(rgba, bmpOut)
+            rgba.release()
+
+            val stream = java.io.ByteArrayOutputStream()
+            bmpOut.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+            bmpOut.recycle()
+            val b64Out = android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+            android.util.Log.d(NAME, "stitch done: ${n} imgs → ${stitched.rows()}px tall, ${b64Out.length} bytes b64")
+            promise.resolve(b64Out)
+        } catch (e: Exception) {
+            android.util.Log.e(NAME, "stitchImages error", e)
+            promise.reject("STITCH_FAIL", e.message, e)
+        } finally {
+            mats.forEach { it.release() }
+            parts.forEach { it.release() }
+            stitched?.release()
+        }
+    }
+
+    // ═══════════════════════════════════════
     // 2. 区域 OCR
     // ═══════════════════════════════════════
 
@@ -762,7 +1330,8 @@ class CvModule(reactContext: ReactApplicationContext) :
                 val safeH = height.coerceAtMost(bitmap.height - safeY)
 
                 val cropped = Bitmap.createBitmap(bitmap, safeX, safeY, safeW, safeH)
-                bitmap.recycle()
+                // createBitmap 可能返回原始 bitmap（全屏裁剪时），不能提前回收
+                if (cropped !== bitmap) { bitmap.recycle() }
 
                 val stream = java.io.ByteArrayOutputStream()
                 cropped.compress(Bitmap.CompressFormat.JPEG, 85, stream)
@@ -1239,6 +1808,133 @@ class CvModule(reactContext: ReactApplicationContext) :
             return b64
         }
         return null
+    }
+
+    // ═══════════════════════════════════════
+    // 文本工具（原生加速）
+    // ═══════════════════════════════════════
+
+    /**
+     * 编辑距离 — 原生实现，比脚本快几十倍
+     * 带提前退出：超过 maxDist 立即返回
+     */
+    @ReactMethod
+    fun editDistance(a: String, b: String, maxDist: Int, promise: Promise) {
+        if (a == b) { promise.resolve(0); return }
+        val la = a.length
+        val lb = b.length
+        if (la == 0) { promise.resolve(lb); return }
+        if (lb == 0) { promise.resolve(la); return }
+
+        val diff = Math.abs(la - lb)
+        if (diff > maxDist) { promise.resolve(diff); return }
+
+        // 带状 DP
+        val k = maxDist
+        val big = k + 1
+        var prev = IntArray(lb + 1) { if (it <= k) it else big }
+
+        for (i in 1..la) {
+            val curr = IntArray(lb + 1) { big }
+            val jMin = maxOf(0, i - k)
+            val jMax = minOf(lb, i + k)
+            if (jMin == 0) curr[0] = i
+
+            var rowMin = big
+            for (j in maxOf(1, jMin)..jMax) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                val replace = prev[j - 1] + cost
+                val delete = prev[j] + 1
+                val insert = if (j > jMin) curr[j - 1] + 1 else big
+                val v = minOf(replace, delete, insert)
+                curr[j] = v
+                if (v < rowMin) rowMin = v
+            }
+            if (rowMin >= k) { promise.resolve(k); return }
+            prev = curr
+        }
+        promise.resolve(prev[lb])
+    }
+
+    /**
+     * 模糊文本匹配 — editDistance / maxLen < threshold
+     */
+    @ReactMethod
+    fun fuzzyTextMatch(a: String, b: String, threshold: Double, promise: Promise) {
+        if (a == b) { promise.resolve(true); return }
+        val la = a.length
+        val lb = b.length
+        val maxLen = maxOf(la, lb)
+        if (maxLen == 0) { promise.resolve(true); return }
+
+        // 长度差检查
+        if (Math.abs(la - lb).toDouble() / maxLen >= threshold) { promise.resolve(false); return }
+
+        // 前缀后缀快速检查
+        val check = maxOf(1, (minOf(la, lb) * 0.3).toInt())
+        val prefixOk = a.substring(0, minOf(check, la)) == b.substring(0, minOf(check, lb))
+        val suffixOk = a.substring(maxOf(0, la - check)) == b.substring(maxOf(0, lb - check))
+        if (prefixOk && suffixOk) { promise.resolve(true); return }
+
+        // 编辑距离
+        val maxDist = (maxLen * threshold).toInt() + 1
+        val dist = nativeEditDistance(a, b, maxDist)
+        promise.resolve(dist.toDouble() / maxLen < threshold)
+    }
+
+    /**
+     * 批量模糊匹配 — 在列表中找到与 query 匹配的项
+     * 返回匹配的索引列表
+     */
+    @ReactMethod
+    fun fuzzyFindInList(query: String, list: ReadableArray, threshold: Double, promise: Promise) {
+        val results = WritableNativeArray()
+        for (i in 0 until list.size()) {
+            val item = list.getString(i) ?: continue
+            if (query == item) {
+                results.pushInt(i)
+                continue
+            }
+            val maxLen = maxOf(query.length, item.length)
+            if (maxLen == 0) continue
+            if (Math.abs(query.length - item.length).toDouble() / maxLen >= threshold) continue
+            val maxDist = (maxLen * threshold).toInt() + 1
+            val dist = nativeEditDistance(query, item, maxDist)
+            if (dist.toDouble() / maxLen < threshold) {
+                results.pushInt(i)
+            }
+        }
+        promise.resolve(results)
+    }
+
+    private fun nativeEditDistance(a: String, b: String, maxDist: Int): Int {
+        val la = a.length
+        val lb = b.length
+        if (la == 0) return lb
+        if (lb == 0) return la
+        if (Math.abs(la - lb) > maxDist) return Math.abs(la - lb)
+
+        val k = maxDist
+        val big = k + 1
+        var prev = IntArray(lb + 1) { if (it <= k) it else big }
+
+        for (i in 1..la) {
+            val curr = IntArray(lb + 1) { big }
+            val jMin = maxOf(0, i - k)
+            val jMax = minOf(lb, i + k)
+            if (jMin == 0) curr[0] = i
+
+            var rowMin = big
+            for (j in maxOf(1, jMin)..jMax) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                val v = minOf(prev[j - 1] + cost, prev[j] + 1, if (j > jMin) curr[j - 1] + 1 else big)
+                curr[j] = v
+                if (v < rowMin) rowMin = v
+            }
+            if (rowMin >= k) return k
+            prev = curr
+        }
+        return prev[lb]
     }
 
     /**

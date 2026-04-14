@@ -15,7 +15,7 @@ import { writeClipboard, shareText, shareFile, takePhoto } from './deviceCapabil
 import { downloadToDevice } from './fileDownloader'
 import { setWallpaper } from './screenshot'
 import { saveContact } from './contacts'
-import { actionStrings, permissionStrings, openPermissionEditor, isChinese } from '../utils/i18n'
+import { actionStrings, permissionStrings, openPermissionEditor } from '../utils/i18n'
 
 const DeviceInfoManager = NativeModules.DeviceInfoManager ?? null
 
@@ -222,25 +222,18 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
         const DeviceInfo = NativeModules.DeviceInfoManager
         if (DeviceInfo?.sendSms) {
           try {
-            const { PermissionsAndroid } = require('react-native')
-            const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.SEND_SMS)
-            if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+            const { requirePermission } = require('./permissionGate')
+            const smsOk = await requirePermission('sms_send')
+            if (smsOk) {
               await DeviceInfo.sendSms(action.number, action.text)
               return ok(action.type)
-            } else {
-              const ps = permissionStrings('sms')
-              showModal(ps.title, ps.message, [
-                { text: ps.goSettings, onPress: () => openPermissionEditor() },
-                { text: ps.cancel, style: 'cancel' as const },
-              ])
             }
           } catch {}
         }
         // Fallback: open SMS app (user needs to manually press send)
         try {
           await Linking.openURL(`sms:${action.number}?body=${encodeURIComponent(action.text)}`)
-          const zh = require('../utils/i18n').isChinese()
-          return { type: action.type, success: true, error: zh ? '已打开短信应用，请手动点击发送' : 'SMS app opened, please press send manually' }
+          return { type: action.type, success: true, error: t.smsAppOpened }
         } catch {
           return { type: action.type, success: false, error: t.sendSmsFailed }
         }
@@ -290,15 +283,9 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
 
       // ── Notification ──
       case 'notify': {
-        // Android 13+ requires POST_NOTIFICATIONS permission
-        const { PermissionsAndroid: PA, Platform: P } = require('react-native')
-        if (P.OS === 'android' && P.Version >= 33) {
-          const notifGranted = await PA.request(PA.PERMISSIONS.POST_NOTIFICATIONS)
-          if (notifGranted !== PA.RESULTS.GRANTED) {
-            if (notifGranted === PA.RESULTS.NEVER_ASK_AGAIN) guideToSettings('notifications')
-            return { type: action.type, success: false, error: isChinese() ? '通知权限未开启' : 'Notification permission denied' }
-          }
-        }
+        const { requirePermission } = require('./permissionGate')
+        const notifOk = await requirePermission('notifications')
+        if (!notifOk) return { type: action.type, success: false, error: t.notifPermDenied }
         await Notifications.showNotification(action.title, action.body)
         return ok(action.type)
       }
@@ -376,17 +363,15 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
       case 'open_notifications': {
         const a11yEnabled = await Accessibility.isAccessibilityEnabled()
         if (!a11yEnabled) {
-          const zh = isChinese()
           showModal(
-            zh ? '需要开启无障碍服务' : 'Accessibility Service Required',
-            zh ? '此操作需要开启AgentCab无障碍服务：\n\n设置 → 无障碍 → AgentCab → 开启'
-              : 'This action requires the AgentCab accessibility service.\n\nSettings → Accessibility → AgentCab → Enable',
+            t.a11yRequiredTitle,
+            t.a11yRequiredMsg,
             [
-              { text: zh ? '去设置' : 'Open Settings', onPress: () => Linking.openURL('android.settings.ACCESSIBILITY_SETTINGS') },
-              { text: zh ? '取消' : 'Cancel', style: 'cancel' as const },
+              { text: t.goSettings, onPress: () => Linking.openURL('android.settings.ACCESSIBILITY_SETTINGS') },
+              { text: t.cancel, style: 'cancel' as const },
             ],
           )
-          return { type: action.type, success: false, error: zh ? '无障碍服务未开启' : 'Accessibility service not enabled' }
+          return { type: action.type, success: false, error: t.a11yNotEnabled }
         }
 
         switch (action.type) {
@@ -422,11 +407,10 @@ async function executeSingleAction(action: Action, skipConfirm = false): Promise
             } catch (e: any) {
               // WRITE_SETTINGS is a special permission — guide user
               if (e?.message?.includes?.('WRITE_SETTINGS') || e?.message?.includes?.('permission')) {
-                const zh = isChinese()
                 showModal(
-                  zh ? '需要修改系统设置权限' : 'System Settings Permission Required',
-                  zh ? '请允许AgentCab修改系统设置：\n\n系统会打开设置页面，请开启"允许修改系统设置"' : 'Please allow AgentCab to modify system settings.',
-                  [{ text: zh ? '去设置' : 'Open Settings', onPress: () => Linking.openURL('android.settings.action.MANAGE_WRITE_SETTINGS') }],
+                  t.writeSettingsTitle,
+                  t.writeSettingsMsg,
+                  [{ text: t.goSettings, onPress: () => Linking.openURL('android.settings.action.MANAGE_WRITE_SETTINGS') }],
                 )
               }
               throw e

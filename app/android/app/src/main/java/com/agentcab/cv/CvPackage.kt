@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class CvPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-        listOf(CvModule(reactContext))
+        listOf(CvModule(reactContext), YoloIconModule(reactContext))
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()

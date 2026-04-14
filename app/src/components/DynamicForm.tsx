@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     borderRadius: 8,
     padding: spacing.xs,
-    paddingRight: spacing.sm,
+    paddingEnd: spacing.sm,
     gap: spacing.xs,
   },
   fileThumb: {
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
   fileRemove: {
     fontSize: 12,
     color: colors.error,
-    marginLeft: 4,
+    marginStart: 4,
     fontWeight: '600',
   },
   fileButtons: {

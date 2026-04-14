@@ -1,7 +1,7 @@
 export default {
   // Nav
   home: 'Home',
-  apis: 'Clones',
+  apis: 'Agents',
   tasks: 'Tasks',
   me: 'Me',
 
@@ -14,7 +14,7 @@ export default {
   topUp: 'Top Up',
   recent: 'Recent',
   viewAll: 'View All',
-  popularApis: 'Popular Clones',
+  popularApis: 'Popular Agents',
   browse: 'Browse',
   done: 'Done',
   failed: 'Failed',
@@ -29,7 +29,7 @@ export default {
   searchPlaceholder: 'Describe what you want, e.g. "make a PPT"',
   filter: 'Filter',
   all: 'All',
-  noApisFound: 'No clones found',
+  noApisFound: 'No agents found',
   calls: 'calls',
 
   // API Detail
@@ -38,7 +38,7 @@ export default {
   price: 'PRICE',
   yourBalance: 'BALANCE',
   input: 'Input',
-  callApi: 'Use Clone',
+  callApi: 'Use Agent',
   confirm: 'Confirm',
   cancel: 'Cancel',
   insufficientCredits: 'Insufficient Credits',
@@ -55,7 +55,7 @@ export default {
   allFilter: 'All',
   success: 'Success',
   noCallsYet: 'No calls yet',
-  callAnApi: 'Use a clone to see your history here',
+  callAnApi: 'Use an agent to see your history here',
   callId: 'Call ID',
   status: 'Status',
   cost: 'Cost',
@@ -73,7 +73,7 @@ export default {
   email: 'Email',
   role: 'Role',
   joined: 'Joined',
-  myApis: 'My Clones',
+  myApis: 'My Agents',
   published: 'Published',
   draft: 'Draft',
   private: 'Private',
@@ -100,6 +100,8 @@ export default {
 
   // Wallet
   rechargeViaAlipay: 'Recharge via Alipay',
+  rechargeViaStripe: 'Recharge with Stripe',
+  paymentReturnHint: 'After completing payment, return to the app. Your credits will appear automatically.',
   selectAmount: 'Select Amount',
   pay: 'Pay',
   paymentConfirm: 'After completing payment, tap "I\'ve Paid" to verify.',
@@ -137,9 +139,10 @@ export default {
   // Wallet (additional)
   creditsBalance: 'Credits Balance',
   payAmount: 'Pay ¥',
+  payAmountUSD: 'Pay $',
 
   // Nav titles
-  apiDetail: 'Clone Detail',
+  apiDetail: 'Agent Detail',
   result: 'Result',
   photos: 'Photos',
   aiClassify: 'AI Classify',
@@ -224,12 +227,12 @@ export default {
   disabled: 'Disabled',
 
   // Onboarding
-  onboardingTitle1: 'Open AI Clone Marketplace',
-  onboardingDesc1: 'AgentCab is an open marketplace for AI clones. Anyone can create and publish AI clones, anyone can call them on demand. Each clone is an independent AI capability.',
-  onboardingTitle2: 'Use it, not just chat',
-  onboardingDesc2: 'These clones are not chatbots — they actually do things: organize invoices, screen resumes, detect scams, generate PPTs, analyze data. One call, real results.',
-  onboardingTitle3: 'Your phone, AI\'s hands and feet',
-  onboardingDesc3: 'On mobile, clones can read SMS, calls, photos, and take actions — create events, send alerts, delete files. Set up automations and let AI work for you continuously.',
+  onboardingTitle1: 'The open AI agent marketplace',
+  onboardingDesc1: 'AgentCab is an open marketplace for AI agents. Anyone can publish, anyone can call. Each agent is a real, callable capability — not just another chat box.',
+  onboardingTitle2: 'Agents that actually do the work',
+  onboardingDesc2: 'These agents aren\'t chatbots. They organize invoices, screen resumes, detect scams, generate decks, analyze markets. One call, real results.',
+  onboardingTitle3: 'Your phone becomes AI\'s hands',
+  onboardingDesc3: 'On mobile, agents can read SMS, calls, and photos, then take action — create events, send alerts, organize files. Set them up once and let AI keep working for you.',
   onboardingSkip: 'Skip',
   onboardingGetStarted: 'Get Started',
 
@@ -249,4 +252,150 @@ export default {
   networkRestored: 'Connection restored',
   serverError: 'Server error, please try again later',
   sessionExpired: 'Session expired, please log in again',
+
+  // Home (shortcut management, modal prompts — {0}/{1} substituted via format())
+  home_defaultScriptName: 'Script',
+  home_scriptRunningTitle: 'Another script is running',
+  home_scriptRunningMsg: '"{0}" is running. Stop it and start "{1}"?',
+  home_stopAndStart: 'Stop & Start',
+  home_photoUploadingMsg: 'Photo captured, uploading and calling in background...',
+  home_callStartedTitle: 'Call Started',
+  home_callStartedMsg: '"{0}" submitted. Check Tasks for results.',
+  home_shortcuts: 'Shortcuts',
+  home_manage: 'Manage',
+  home_gettingStarted: 'Getting Started',
+  home_browseClones: 'Browse Agents',
+  home_topUpCredits: 'Top up credits',
+  home_setupProfile: 'Set up your profile',
+  home_enterNewName: 'Enter new name',
+  home_save: 'Save',
+  home_removeShortcut: 'Remove shortcut',
+
+  // TaskResult
+  taskResult_estimated: 'est.',
+  taskResult_retryHint: 'Try refreshing if no response for a long time',
+  taskResult_rerun: 'Re-run',
+  taskResult_openFailed: 'Failed',
+  taskResult_openWith: 'Open with...',
+  taskResult_scriptLoadFailed: 'Failed to load script',
+  taskResult_tapToPreview: 'Tap to preview',
+  taskResult_fileExpired: 'File expired',
+  taskResult_expired: 'Expired',
+  taskResult_expiresInDays: 'Expires in {0}d',
+  taskResult_expiresInHours: 'Expires in {0}h',
+  taskResult_expiresInMinutes: 'Expires in {0}m',
+
+  // SkillDetail
+  skill_partialDataTitle: 'Some data not collected',
+  skill_partialDataMsg: 'The following data could not be collected (permissions may be needed):\n\n{0}\n\nGo to Settings → Apps → AgentCab → Permissions to enable.',
+  skill_goSettings: 'Open Settings',
+  skill_collectFirst: 'Please collect device data first',
+  skill_verifyNow: 'Verify Now',
+  skill_clonesSuffix: 'agents',
+  skill_speed: 'Speed',
+  skill_history: 'History',
+  skill_fillRequiredFields: 'Please fill all required fields first',
+  skill_collapse: 'Less',
+  skill_moreActions: 'More actions',
+  skill_fileInputMode: 'File Input Mode',
+  skill_fileInputModeMsg: 'How to get the file when quick running?',
+  skill_camera: 'Camera',
+  skill_gallery: 'Gallery',
+  skill_shortcutCreated: 'Shortcut Created',
+  skill_willOpenCamera: 'Will open camera on tap',
+  skill_willOpenGallery: 'Will open gallery on tap',
+  skill_shortcutSaved: 'Saved to Home quick actions with current parameters',
+  skill_createShortcut: 'Create Shortcut',
+  skill_loadMore: 'Load more',
+
+  // Profile
+  profile_avatarUpdated: 'Avatar updated',
+  profile_profileUpdated: 'Profile updated',
+  profile_website: 'Website',
+  profile_verifyShort: 'Verify',
+  profile_tapToReset: 'Tap to reset',
+  profile_editProfile: 'Edit Profile',
+  profile_uploading: 'Uploading...',
+  profile_changeAvatar: 'Change Avatar',
+  profile_namePlaceholder: 'Your name',
+  profile_bio: 'Bio',
+  profile_bioPlaceholder: 'Tell us about yourself...',
+  profile_wechatOfficial: 'WeChat Official',
+  profile_wechatPlaceholder: 'Official account name',
+  profile_bilibili: 'Bilibili',
+  profile_bilibiliPlaceholder: 'Space ID',
+
+  // EmailVerify
+  emailVerify_codeSent: 'Code Sent',
+  emailVerify_checkEmail: 'Check your email',
+  emailVerify_sendFailed: 'Failed',
+  emailVerify_hint: 'Hint',
+  emailVerify_enter6: 'Enter 6-digit code',
+  emailVerify_verified: 'Verified',
+  emailVerify_verifiedMsg: 'Email verified successfully',
+  emailVerify_failed: 'Failed',
+  emailVerify_title: 'Verify Email',
+  emailVerify_desc: 'A verification code has been sent to your email',
+  emailVerify_verify: 'Verify',
+  emailVerify_resend: 'Resend',
+  emailVerify_sending: 'Sending...',
+  emailVerify_resendCode: 'Resend Code',
+
+  // Tasks
+  tasks_waiting: 'Waiting',
+
+  // Wallet
+  wallet_available: 'Available',
+  wallet_emptyHint: 'Transactions will appear here after using agents',
+
+  // Discover
+  discover_tryOther: 'Try different keywords or clear filters',
+
+  // CreateAutomation
+  createAutomation_everyNHours: 'Every {0} hours',
+  createAutomation_chooseSkill: 'Choose an AI skill to automate',
+  createAutomation_costPerRun: 'Cost per run',
+  createAutomation_interval: 'Interval',
+  createAutomation_hour: 'Hour',
+  createAutomation_minute: 'Minute',
+  createAutomation_presetParams: 'Preset Parameters',
+  createAutomation_presetDesc: 'Used when automation runs. Device data collected automatically.',
+  createAutomation_runUnit: 'run',
+
+  // Common (shared UI labels)
+  edit: 'Edit',
+
+  // Provider
+  provider_clones: 'Agents',
+  provider_calls: 'Calls',
+  provider_theirClones: 'Their Agents',
+  provider_empty: 'No Agents yet',
+
+  // ScriptExecutor
+  scriptExec_savedTitle: 'Saved',
+  scriptExec_savedMsg: '"{0}" added to Shortcuts',
+  scriptExec_scriptTitle: 'Automation Script',
+  scriptExec_hideCode: 'Hide Code',
+  scriptExec_viewCode: 'View Code',
+  scriptExec_execute: 'Execute',
+  scriptExec_stop: 'Stop',
+  scriptExec_stopped: '⏹ Stopped',
+  scriptExec_logs: 'Logs',
+
+  // Preview (Pdf/Image shared)
+  preview_saveFailed: 'Failed',
+  preview_loadFailed: 'Load failed',
+
+  // TaskPoller notifications ({0} = skill name)
+  taskPoller_complete: 'Task Complete',
+  taskPoller_completeBody: '{0} finished. Tap to view results.',
+  taskPoller_failed: 'Task Failed',
+  taskPoller_failedBody: '{0} failed: {1}',
+  taskPoller_unknownErr: 'Unknown error',
+
+  // Language / RTL restart
+  language_restartTitle: 'Restart required',
+  language_restartMsg: 'Switching direction requires restarting the app to apply the layout.',
+  language_restartNow: 'Restart',
+  language_later: 'Later',
 }

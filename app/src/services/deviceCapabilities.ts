@@ -57,8 +57,9 @@ export async function pickPhotos(limit = 10): Promise<PickedFile[]> {
 export async function takePhoto(): Promise<PickedFile | null> {
   try {
     if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA)
-      if (granted !== PermissionsAndroid.RESULTS.GRANTED) return null
+      const { requirePermission } = require('./permissionGate')
+      const ok = await requirePermission('camera')
+      if (!ok) return null
     }
     const result = await launchCamera({ mediaType: 'photo', quality: 1, saveToPhotos: false })
     if (result.didCancel || !result.assets?.length) return null
@@ -146,11 +147,12 @@ export type LocationData = {
 
 export async function getLocation(): Promise<LocationData | null> {
   const LOCATION_TIMEOUT = 10000
+  const { requirePermission } = require('./permissionGate')
   const locationPromise = new Promise<LocationData | null>(resolve => {
     if (Platform.OS !== 'android') { resolve(null); return }
-    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
-      .then(granted => {
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) { resolve(null); return }
+    requirePermission('location')
+      .then((ok: boolean) => {
+        if (!ok) { resolve(null); return }
         // Use the global navigator.geolocation
         const geo = (globalThis as any).navigator?.geolocation
         if (!geo) { resolve(null); return }

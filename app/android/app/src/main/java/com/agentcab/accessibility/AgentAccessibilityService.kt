@@ -27,6 +27,11 @@ class AgentAccessibilityService : AccessibilityService() {
 
         fun isRunning(): Boolean = instance != null
 
+        fun getCurrentPackage(): String {
+            val inst = instance ?: return ""
+            return inst.rootInActiveWindow?.packageName?.toString() ?: ""
+        }
+
         fun getScreenContent(): List<Map<String, Any?>> {
             val inst = instance ?: return emptyList()
             val root = inst.rootInActiveWindow ?: return emptyList()

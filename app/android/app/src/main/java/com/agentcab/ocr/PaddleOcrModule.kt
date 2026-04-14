@@ -74,6 +74,25 @@ class PaddleOcrModule(reactContext: ReactApplicationContext) :
             return
         }
 
+        // 优先用锁定帧
+        synchronized(com.agentcab.cv.CvModule.bitmapLock) {
+            val locked = com.agentcab.cv.CvModule.sharedLockedBitmap
+            if (locked != null && !locked.isRecycled) {
+                try {
+                    val copy = locked.copy(locked.config ?: Bitmap.Config.ARGB_8888, false)
+                    if (copy != null) { runPaddleOcr(copy, promise); return }
+                } catch (_: Exception) {}
+            }
+            // 其次用感知循环的共享帧（不截图、不闪烁）
+            val shared = com.agentcab.cv.CvModule.sharedLatestBitmap
+            if (shared != null && !shared.isRecycled && System.currentTimeMillis() - com.agentcab.cv.CvModule.sharedLatestTs < 4000) {
+                try {
+                    val copy = shared.copy(shared.config ?: Bitmap.Config.ARGB_8888, false)
+                    if (copy != null) { runPaddleOcr(copy, promise); return }
+                } catch (_: Exception) {}
+            }
+        }
+        // 否则自己截图
         val mainHandler = Handler(Looper.getMainLooper())
         mainHandler.post { ScriptOverlayService.setVisible(false) }
         mainHandler.postDelayed({
@@ -126,11 +145,42 @@ class PaddleOcrModule(reactContext: ReactApplicationContext) :
             promise.reject("NOT_READY", "PaddleOCR not initialized")
             return
         }
+
+        synchronized(com.agentcab.cv.CvModule.bitmapLock) {
+            // 优先用锁定帧（lockFrame 锁的那张，保证和 detectElements 用同一张图）
+            val locked = com.agentcab.cv.CvModule.sharedLockedBitmap
+            if (locked != null && !locked.isRecycled) {
+                try {
+                    val safeX = x.coerceIn(0, locked.width - 1)
+                    val safeY = y.coerceIn(0, locked.height - 1)
+                    val safeW = width.coerceAtMost(locked.width - safeX).coerceAtLeast(1)
+                    val safeH = height.coerceAtMost(locked.height - safeY).coerceAtLeast(1)
+                    val cropped = Bitmap.createBitmap(locked, safeX, safeY, safeW, safeH)
+                    runPaddleOcr(cropped, promise)
+                    return
+                } catch (_: Exception) {}
+            }
+            // 其次用感知循环的共享帧
+            val shared = com.agentcab.cv.CvModule.sharedLatestBitmap
+            if (shared != null && !shared.isRecycled && System.currentTimeMillis() - com.agentcab.cv.CvModule.sharedLatestTs < 4000) {
+                try {
+                    val safeX = x.coerceIn(0, shared.width - 1)
+                    val safeY = y.coerceIn(0, shared.height - 1)
+                    val safeW = width.coerceAtMost(shared.width - safeX).coerceAtLeast(1)
+                    val safeH = height.coerceAtMost(shared.height - safeY).coerceAtLeast(1)
+                    val cropped = Bitmap.createBitmap(shared, safeX, safeY, safeW, safeH)
+                    runPaddleOcr(cropped, promise)
+                    return
+                } catch (_: Exception) {}
+            }
+        }
+
         if (!AgentAccessibilityService.isRunning() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             promise.reject("NOT_AVAILABLE", "Not available")
             return
         }
 
+        // fallback: 自己截图
         val mainHandler = Handler(Looper.getMainLooper())
         mainHandler.post { ScriptOverlayService.setVisible(false) }
         mainHandler.postDelayed({
@@ -193,9 +243,9 @@ class PaddleOcrModule(reactContext: ReactApplicationContext) :
                             val sx = px.coerceIn(0, bitmap.width - 1)
                             val sy = py.coerceIn(0, bitmap.height - 1)
                             val p = bitmap.getPixel(sx, sy)
-                            val qr = (android.graphics.Color.red(p) / 32) * 32
-                            val qg = (android.graphics.Color.green(p) / 32) * 32
-                            val qb = (android.graphics.Color.blue(p) / 32) * 32
+                            val qr = (android.graphics.Color.red(p) / 4) * 4
+                            val qg = (android.graphics.Color.green(p) / 4) * 4
+                            val qb = (android.graphics.Color.blue(p) / 4) * 4
                             val key = (qr shl 16) or (qg shl 8) or qb
                             colorCounts[key] = (colorCounts[key] ?: 0) + 1
                         }
@@ -204,6 +254,21 @@ class PaddleOcrModule(reactContext: ReactApplicationContext) :
                     val bgR = (majorityKey shr 16) and 0xFF
                     val bgG = (majorityKey shr 8) and 0xFF
                     val bgB = majorityKey and 0xFF
+
+                    // 每个字符的估算坐标
+                    val chars = WritableNativeArray()
+                    val cw = if (text.isNotEmpty()) (right - left).toDouble() / text.length else 0.0
+                    for (ci in text.indices) {
+                        chars.pushMap(WritableNativeMap().apply {
+                            putString("char", text[ci].toString())
+                            putInt("x", (left + ci * cw + cw / 2).toInt())
+                            putInt("y", centerY)
+                            putInt("left", (left + ci * cw).toInt())
+                            putInt("right", (left + (ci + 1) * cw).toInt())
+                            putInt("top", top)
+                            putInt("bottom", bottom)
+                        })
+                    }
 
                     val map = WritableNativeMap().apply {
                         putString("text", text)
@@ -217,6 +282,7 @@ class PaddleOcrModule(reactContext: ReactApplicationContext) :
                         putInt("bgR", bgR)
                         putInt("bgG", bgG)
                         putInt("bgB", bgB)
+                        putArray("chars", chars)
                     }
                     results.pushMap(map)
                 }

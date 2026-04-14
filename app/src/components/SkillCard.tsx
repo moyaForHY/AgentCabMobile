@@ -2,7 +2,7 @@ import React from 'react'
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native'
 import { colors, fontWeight, shadows, radii, spacing } from '../utils/theme'
 import { SITE_URL, type Skill } from '../services/api'
-import { isChinese } from '../utils/i18n'
+import { useI18n } from '../i18n'
 
 const ACCENT_COLORS = ['#3b82f6', '#8b5cf6', '#f97316', '#10b981', '#ec4899', '#06b6d4']
 
@@ -14,6 +14,7 @@ type Props = {
 }
 
 export default function SkillCard({ skill, index = 0, onPress, showAuthor = true }: Props) {
+  const { t } = useI18n()
   const avatarUrl = skill.provider_avatar_url && skill.provider_avatar_url.length > 0
     ? (skill.provider_avatar_url.startsWith('http') ? skill.provider_avatar_url : `${SITE_URL}${skill.provider_avatar_url}`)
     : null
@@ -48,7 +49,7 @@ export default function SkillCard({ skill, index = 0, onPress, showAuthor = true
             <View style={s.metaRow}>
               {skill.category ? <Text style={s.chip}>{skill.category}</Text> : null}
               {skill.rating > 0 ? <Text style={s.rating}>{'★'} {skill.rating.toFixed(1)}</Text> : null}
-              {skill.call_count > 0 ? <Text style={s.calls}>{skill.call_count} {isChinese() ? '次' : 'calls'}</Text> : null}
+              {skill.call_count > 0 ? <Text style={s.calls}>{skill.call_count} {t.calls}</Text> : null}
             </View>
             <View style={s.pricePill}>
               <Text style={s.priceText}>{skill.price_credits}c</Text>

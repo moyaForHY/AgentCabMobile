@@ -51,6 +51,7 @@ export interface ScriptBridge {
   screenHas(text: string): Promise<boolean>
   screenFindText(text: string): Promise<any | null>
   screenFindAll(text: string): Promise<any[]>
+  screenFindByColor(r: number, g: number, b: number, tolerance?: number): Promise<any[]>
   screenFindId(id: string): Promise<any | null>
   screenWaitFor(text: string, timeout: number): Promise<boolean>
   screenWaitGone(text: string, timeout: number): Promise<boolean>
@@ -116,21 +117,27 @@ export interface ScriptBridge {
 
   // OCR
   ocrRegion(x: number, y: number, w: number, h: number): Promise<any[]>
+  // Extras — loosely typed to match the live bridge.ts implementations where
+  // signatures have drifted from strict interface. TODO: tighten after refactor.
+  [key: string]: any
 
   // CV (Computer Vision)
-  cvSSIM(): Promise<number>
+  cvSSIM(b64?: string): Promise<number>
   cvIsStable(threshold?: number): Promise<boolean>
   cvTemplateMatch(templateBase64: string, threshold?: number): Promise<{ x: number; y: number; confidence: number; found: boolean }>
   cvGlobalMotion(): Promise<{ dx: number; dy: number; magnitude: number; scrolling: boolean; direction: string }>
   cvTrackPoints(points: number[][]): Promise<any[]>
   cvDiffRegions(threshold?: number, minAreaRatio?: number): Promise<any[]>
   cvCropScreenshot(x: number, y: number, w: number, h: number): Promise<string>
+  cvStitchImages(images: string[]): Promise<string>
   cvTemplateMatchMultiScale(templateBase64: string, threshold?: number): Promise<{ x: number; y: number; confidence: number; found: boolean; scale: number }>
   cvDetectElements(minAreaRatio?: number, maxResults?: number): Promise<any[]>
   cvFindRects(minArea?: number, maxResults?: number): Promise<any[]>
   cvRegionColor(x: number, y: number, w: number, h: number): Promise<any>
   cvPixelColor(x: number, y: number): Promise<{ r: number; g: number; b: number; a: number }>
   cvTemplateMatchAll(templateBase64: string, threshold?: number, maxResults?: number): Promise<any[]>
+  ensureModel(name: string, url: string, sha256: string, size?: number): Promise<boolean>
+  cvDetectIcons(modelName: string, options?: { conf?: number; iou?: number; classes?: string[] }): Promise<Array<{ cls: string; clsId: number; conf: number; x: number; y: number; w: number; h: number; cx: number; cy: number }>>
   cvScreenMeta(): Promise<any>
   cvStartPerception(intervalMs?: number, stableThreshold?: number): Promise<void>
   cvStopPerception(): Promise<void>
@@ -141,6 +148,9 @@ export interface ScriptBridge {
   cvMatchByName(name: string, threshold?: number): Promise<{ x: number; y: number; confidence: number; found: boolean }>
   cvListTemplates(): Promise<string[]>
   cvDeleteTemplate(name: string): Promise<void>
+  cvEditDistance(a: string, b: string, maxDist?: number): Promise<number>
+  cvFuzzyTextMatch(a: string, b: string, threshold?: number): Promise<boolean>
+  cvFuzzyFindInList(query: string, list: string[], threshold?: number): Promise<number[]>
   cvResetFrame(): Promise<void>
 }
 
@@ -417,6 +427,7 @@ export class Interpreter {
         if (expr.property === 'toLowerCase' && typeof obj === 'string') return () => obj.toLowerCase()
         if (expr.property === 'toUpperCase' && typeof obj === 'string') return () => obj.toUpperCase()
         if (expr.property === 'replace' && typeof obj === 'string') return (a: string, b: string) => obj.replace(a, b)
+        if (expr.property === 'replaceAll' && typeof obj === 'string') return (a: string, b: string) => obj.split(a).join(b)
         if (expr.property === 'startsWith' && typeof obj === 'string') return (v: string) => obj.startsWith(v)
         if (expr.property === 'endsWith' && typeof obj === 'string') return (v: string) => obj.endsWith(v)
         if (expr.property === 'toString') return () => String(obj)
@@ -588,6 +599,7 @@ export class Interpreter {
       has: (text: string) => b.screenHas(text),
       findText: (text: string) => b.screenFindText(text),
       findAll: (text: string) => b.screenFindAll(text),
+      findByColor: (r: number, g: number, b_: number, tolerance?: number) => b.screenFindByColor(r, g, b_, tolerance),
       findId: (id: string) => b.screenFindId(id),
       waitFor: (text: string, timeout = 30000) => b.screenWaitFor(text, timeout),
       waitGone: (text: string, timeout = 30000) => b.screenWaitGone(text, timeout),
@@ -611,6 +623,8 @@ export class Interpreter {
     env.define('scrollDown', () => b.scrollDown())
     env.define('scrollUp', () => b.scrollUp())
     env.define('scrollTo', (text: string) => b.scrollTo(text))
+    env.define('waitFor', (condition: any) => b.waitFor(condition))
+    env.define('waitForChange', (timeoutMs?: number) => b.waitForChange(timeoutMs))
     env.define('pinch', (dir: string) => b.pinch(dir))
 
     // Navigation
@@ -622,6 +636,10 @@ export class Interpreter {
     env.define('launch', (pkg: string) => b.launch(pkg))
     env.define('currentApp', () => b.currentApp())
     env.define('isRunning', (pkg: string) => b.isRunning(pkg))
+
+    // Models (download/cache neural network weights)
+    env.define('ensureModel', (name: string, url: string, sha256: string, size?: number) =>
+      b.ensureModel(name, url, sha256, size))
 
     // System
     env.define('wait', (ms: number) => b.wait(ms))
@@ -661,7 +679,7 @@ export class Interpreter {
         if (!callId) { console.log('[Vision] no call_id'); return null }
         console.log('[Vision] call_id: ' + callId)
         for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 2000))
+          await new Promise<void>(r => setTimeout(() => r(), 2000))
           const poll = await b.httpGet(`https://www.agentcab.ai/v1/calls/${callId}`)
           const callData = JSON.parse(poll.body)
           const status = callData?.status || callData?.data?.status
@@ -704,12 +722,35 @@ export class Interpreter {
       remove: (key: string) => b.storeRemove(key),
     })
 
+    // Overlay
+    env.define('setOverlayLogs', (enabled: boolean) => b.setOverlayLogs(enabled))
+    env.define('overlay', {
+      show: (html: string) => b.overlayShowHtml(html),
+      hide: () => b.overlayHide(),
+    })
+
+    // Overlay action listener
+    env.define('waitForOverlayAction', (timeoutMs: number) => b.waitForOverlayAction(timeoutMs))
+
+    // Screenshot
+    env.define('screenshot', {
+      takeBase64: () => b.screenshotBase64(),
+    })
+
+    // Audio recording
+    env.define('audio', {
+      startRecording: () => b.startRecording(),
+      stopRecording: () => b.stopRecording(),
+      isRecording: () => b.isRecording(),
+      fileToBase64: (path: string) => b.fileToBase64(path),
+    })
+
     // OCR
     env.define('ocrRegion', (x: number, y: number, w: number, h: number) => b.ocrRegion(x, y, w, h))
 
     // CV (Computer Vision)
     env.define('cv', {
-      ssim: () => b.cvSSIM(),
+      ssim: (b64?: string) => b.cvSSIM(b64),
       isStable: (threshold?: number) => b.cvIsStable(threshold),
       hasChanged: async (threshold?: number) => {
         const score = await b.cvSSIM()
@@ -720,8 +761,9 @@ export class Interpreter {
       trackPoints: (points: number[][]) => b.cvTrackPoints(points),
       diffRegions: (threshold?: number, minAreaRatio?: number) => b.cvDiffRegions(threshold, minAreaRatio),
       cropScreenshot: (x: number, y: number, w: number, h: number) => b.cvCropScreenshot(x, y, w, h),
+      stitchImages: (images: string[]) => b.cvStitchImages(images),
       matchTemplateMultiScale: (template: string, threshold?: number) => b.cvTemplateMatchMultiScale(template, threshold),
-      detectElements: (minAreaRatio?: number, maxResults?: number) => b.cvDetectElements(minAreaRatio, maxResults),
+      detectElements: (minAreaRatio?: number, maxResults?: number, dilateSize?: number, cannyLow?: number, cannyHigh?: number) => (b as any).cvDetectElements(minAreaRatio, maxResults, dilateSize, cannyLow, cannyHigh),
       findRects: (minArea?: number, maxResults?: number) => b.cvFindRects(minArea, maxResults),
       regionColor: (x: number, y: number, w: number, h: number) => b.cvRegionColor(x, y, w, h),
       pixelColor: (x: number, y: number) => b.cvPixelColor(x, y),
@@ -730,13 +772,20 @@ export class Interpreter {
       startPerception: (intervalMs?: number, threshold?: number) => b.cvStartPerception(intervalMs, threshold),
       stopPerception: () => b.cvStopPerception(),
       getState: () => b.cvGetPerception(),
+      ackChange: () => b.cvAckChange(),
       lockFrame: () => b.cvLockFrame(),
       unlockFrame: () => b.cvUnlockFrame(),
       saveTemplate: (name: string, x: number, y: number, w: number, h: number) => b.cvSaveTemplate(name, x, y, w, h),
       matchByName: (name: string, threshold?: number) => b.cvMatchByName(name, threshold),
       listTemplates: () => b.cvListTemplates(),
       deleteTemplate: (name: string) => b.cvDeleteTemplate(name),
+      featureMatch: (template: string, minMatches?: number) => b.cvFeatureMatch(template, minMatches),
+      editDistance: (s1: string, s2: string, maxDist?: number) => b.cvEditDistance(s1, s2, maxDist),
+      fuzzyMatch: (s1: string, s2: string, threshold?: number) => b.cvFuzzyTextMatch(s1, s2, threshold),
+      fuzzyFindInList: (query: string, list: string[], threshold?: number) => b.cvFuzzyFindInList(query, list, threshold),
       resetFrame: () => b.cvResetFrame(),
+      detectIcons: (modelName: string, options?: { conf?: number; iou?: number; classes?: string[] }) =>
+        b.cvDetectIcons(modelName, options),
     })
 
     // Utility

@@ -1,5 +1,5 @@
-import { NativeModules, Platform, PermissionsAndroid } from 'react-native'
-import { permissionStrings, openPermissionEditor } from '../utils/i18n'
+import { NativeModules, Platform } from 'react-native'
+import { requirePermission } from './permissionGate'
 
 const { PhotoScanner } = NativeModules
 
@@ -22,35 +22,7 @@ export type PhotoMeta = {
  */
 export async function requestPhotoPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return false
-
-  const sdkInt = Platform.Version as number
-  const permission =
-    sdkInt >= 33
-      ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
-      : PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE
-
-  const granted = await PermissionsAndroid.check(permission)
-  if (granted) return true
-
-  const result = await PermissionsAndroid.request(permission, {
-    title: 'Photo Access',
-    message: 'AgentCab needs access to your photos to help you organize them.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
-  })
-
-  if (result === PermissionsAndroid.RESULTS.GRANTED) return true
-
-  // Only guide to Settings when system won't prompt again
-  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-    const { showModal } = require('../components/AppModal')
-    const s = permissionStrings('photos')
-    showModal(s.title, s.message, [
-      { text: s.goSettings, onPress: () => openPermissionEditor() },
-      { text: s.cancel, style: 'cancel' as const },
-    ])
-  }
-  return false
+  return await requirePermission('photos')
 }
 
 /**

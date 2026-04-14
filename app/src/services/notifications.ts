@@ -1,12 +1,10 @@
-import { NativeModules, PermissionsAndroid, Platform } from 'react-native'
+import { NativeModules, Platform } from 'react-native'
+import { requirePermission } from './permissionGate'
 const NM = NativeModules.NotificationManager ?? null
 
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (Platform.OS === 'android' && (Platform.Version as number) >= 33) {
-    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)
-    return result === PermissionsAndroid.RESULTS.GRANTED
-  }
-  return true
+  if (Platform.OS !== 'android') return true
+  return await requirePermission('notifications')
 }
 
 export async function showNotification(title: string, body: string, id = Date.now(), callId?: string): Promise<void> {

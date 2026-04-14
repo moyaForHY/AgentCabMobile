@@ -13,20 +13,18 @@ import {
   Modal,
   TextInput,
   Alert,
-  NativeModules,
-  DeviceEventEmitter,
-  Platform,
 } from 'react-native'
 import LinearGradient from 'react-native-linear-gradient'
 import { colors, gradients, radii, spacing, fontSize, fontWeight, shadows } from '../utils/theme'
 import { useAuth } from '../hooks/useAuth'
-import { useI18n } from '../i18n'
+import { useI18n, format } from '../i18n'
 import { fetchWallet, fetchSkills, fetchCalls, fetchSkillById, callSkill, uploadFile, type Skill } from '../services/api'
 import { useCachedData } from '../hooks/useCachedData'
 import { usePinnedApis } from '../hooks/usePinnedApis'
 import { events, EVENT_CALL_COMPLETED, EVENT_WALLET_CHANGED } from '../services/events'
 import { getRules, type AutomationRule } from '../services/automationService'
 import { collectAllDeviceData, getDeviceFormats } from '../services/dataCollector'
+import { permTypesFromSchema, requirePermissions } from '../services/permissionGate'
 import { takePhoto, pickPhoto, type PickedFile } from '../services/deviceCapabilities'
 import { trackTask } from '../services/taskPoller'
 import { taskManager } from '../services/taskManager'
@@ -35,9 +33,7 @@ import SkillCard from '../components/SkillCard'
 import { SkillCardSkeleton } from '../components/Skeleton'
 import Icon from 'react-native-vector-icons/Feather'
 import MIcon from 'react-native-vector-icons/MaterialCommunityIcons'
-import { ScriptEngine } from '../scripting'
-import { createBridge } from '../scripting/bridge'
-import BackgroundService from 'react-native-background-actions'
+import { ScriptManager } from '../scripting/ScriptManager'
 
 // ─── Status Badge ────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -73,17 +69,65 @@ function PulseDot() {
   return <Animated.View style={[styles.pulseDot, { opacity: anim }]} />
 }
 
+// ─── Breathing wrapper for running shortcut icons ────────────
+function BreathingView({ children, style }: { children: React.ReactNode; style?: any }) {
+  const anim = useRef(new Animated.Value(0.6)).current
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.6, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    ).start()
+  }, [anim])
+  const scale = anim.interpolate({ inputRange: [0.6, 1], outputRange: [0.92, 1.05] })
+  return (
+    <Animated.View style={[style, { opacity: anim, transform: [{ scale }] }]}>
+      {children}
+    </Animated.View>
+  )
+}
+
 // ─── Home Screen ─────────────────────────────────────────────
 export default function HomeScreen({ navigation }: any) {
   const { user } = useAuth()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const { pinned, rename, unpin, incrementUsage } = usePinnedApis()
   const [automations, setAutomations] = useState<AutomationRule[]>([])
   const [showRenameModal, setShowRenameModal] = useState(false)
   const [renamingApi, setRenamingApi] = useState<any>(null)
   const [renameText, setRenameText] = useState('')
-  const [runningShortcut, setRunningShortcut] = useState<string | null>(null)
-  const engineRef = useRef<ScriptEngine | null>(null)
+  // 从 ScriptManager 的 id 提取 shortcut uid
+  // id 格式: shortcut_<uid>_<timestamp>，uid 本身可能含下划线
+  const extractUidFromScriptId = (id: string): string | null => {
+    if (!id.startsWith('shortcut_')) return null
+    // 去掉前缀 "shortcut_" 和末尾 "_<timestamp>"（timestamp 是纯数字）
+    const withoutPrefix = id.substring('shortcut_'.length)
+    const m = withoutPrefix.match(/^(.*)_\d+$/)
+    return m ? m[1] : withoutPrefix
+  }
+
+  const [runningShortcut, setRunningShortcut] = useState<string | null>(() => {
+    const running = ScriptManager.getRunningScript()
+    if (running && running.id) return extractUidFromScriptId(running.id)
+    return null
+  })
+
+  // 监听 ScriptManager 状态变化
+  useEffect(() => {
+    const unsubscribe = ScriptManager.onStateChange(() => {
+      if (!ScriptManager.isRunning()) {
+        setRunningShortcut(null)
+      } else {
+        const running = ScriptManager.getRunningScript()
+        if (running && running.id) {
+          const uid = extractUidFromScriptId(running.id)
+          if (uid) setRunningShortcut(uid)
+        }
+      }
+    })
+    return unsubscribe
+  }, [])
 
   const handleQuickRun = async (api: any) => {
     if (runningShortcut) return
@@ -93,54 +137,59 @@ export default function HomeScreen({ navigation }: any) {
 
     // Script shortcut — execute .acs directly
     if (api.script) {
-      try {
-        const OverlayManager = NativeModules.ScriptOverlayManager
-        if (Platform.OS === 'android' && OverlayManager) {
-          try {
-            const canDraw = await OverlayManager.canDrawOverlays()
-            if (!canDraw) { await OverlayManager.requestOverlayPermission(); setRunningShortcut(null); return }
-            await OverlayManager.startOverlay()
-          } catch {}
+      const scriptName = api.customName || api.name || t.home_defaultScriptName
+      const tryStart = async () => {
+        try {
+          const result = await ScriptManager.startScript(
+            `shortcut_${uid}_${Date.now()}`,
+            scriptName,
+            api.script,
+          )
+          if (!result.started) {
+            if (result.conflictWith) {
+              setRunningShortcut(null)
+              showModal(
+                t.home_scriptRunningTitle,
+                format(t.home_scriptRunningMsg, result.conflictWith, scriptName),
+                [
+                  { text: t.cancel, style: 'cancel' },
+                  {
+                    text: t.home_stopAndStart,
+                    onPress: async () => {
+                      ScriptManager.stopScript()
+                      setRunningShortcut(uid)
+                      await tryStart()
+                    },
+                  },
+                ],
+              )
+            } else {
+              showModal(t.errorTitle, result.error || t.failed)
+              setRunningShortcut(null)
+            }
+          }
+        } catch (err: any) {
+          showModal(t.errorTitle, err.message || t.failed)
+          setRunningShortcut(null)
         }
-        const stopSub = DeviceEventEmitter.addListener('onScriptStop', () => { engineRef.current?.cancel() })
-        const runScript = async () => {
-          const bridge = createBridge(() => {})
-          const engine = new ScriptEngine(bridge, {})
-          engineRef.current = engine
-          await engine.run(api.script)
-          engineRef.current = null
-        }
-        if (Platform.OS === 'android') {
-          try {
-            await BackgroundService.start(runScript, {
-              taskName: 'AgentCab Script',
-              taskTitle: lang === 'zh' ? '脚本运行中' : 'Script Running',
-              taskDesc: api.customName || api.name,
-              taskIcon: { name: 'ic_launcher', type: 'mipmap' },
-              color: '#2563eb',
-              linkingURI: 'agentcab://',
-            })
-            await new Promise<void>((resolve) => {
-              const check = setInterval(() => { if (!engineRef.current) { clearInterval(check); resolve() } }, 1000)
-            })
-            await BackgroundService.stop()
-          } catch { await runScript() }
-        } else {
-          await runScript()
-        }
-        stopSub.remove()
-        if (Platform.OS === 'android' && OverlayManager) { try { await OverlayManager.stopOverlay() } catch {} }
-      } catch (err: any) {
-        showModal(t.errorTitle, err.message || t.failed)
-      } finally {
-        setRunningShortcut(null)
       }
+      await tryStart()
       return
     }
 
     try {
       const skill = await fetchSkillById(api.id)
       const formats = getDeviceFormats(skill.input_schema || {})
+
+      // Batch permission pre-check for any device:* fields this shortcut needs.
+      // Gate shows explicit modals on denial — abort if user declined.
+      if (formats.length > 0) {
+        const needed = permTypesFromSchema(skill.input_schema || {})
+        if (needed.length > 0) {
+          const res = await requirePermissions(needed)
+          if (!res.ok) { setRunningShortcut(null); return }
+        }
+      }
 
       // Start with preset values
       let input: Record<string, any> = { ...(api.presetValues || {}) }
@@ -170,7 +219,7 @@ export default function HomeScreen({ navigation }: any) {
 
           // Upload in background — show toast and return to home
           setRunningShortcut(null)
-          showModal(lang === 'zh' ? '正在处理' : 'Processing', lang === 'zh' ? '照片已拍摄，正在后台上传并调用...' : 'Photo captured, uploading and calling in background...')
+          showModal(t.processing, t.home_photoUploadingMsg)
 
           // Do upload + call async
           ;(async () => {
@@ -192,7 +241,7 @@ export default function HomeScreen({ navigation }: any) {
               if (result.status === 'completed' || result.status === 'success') {
                 events.emit(EVENT_CALL_COMPLETED, { call_id: result.call_id, skill_name: skill.name, status: result.status })
               }
-              showModal(lang === 'zh' ? '调用成功' : 'Call Started', lang === 'zh' ? `"${skill.name}" 已提交，可在任务列表查看结果` : `"${skill.name}" submitted. Check Tasks for results.`)
+              showModal(t.home_callStartedTitle, format(t.home_callStartedMsg, skill.name))
             } catch (err: any) {
               showModal(t.errorTitle, err.message || t.failed)
             }
@@ -228,7 +277,7 @@ export default function HomeScreen({ navigation }: any) {
           status: result.status,
         })
       }
-      showModal(lang === 'zh' ? '调用成功' : 'Call Started', lang === 'zh' ? `"${skill.name}" 已提交，可在任务列表查看结果` : `"${skill.name}" submitted. Check Tasks for results.`)
+      showModal(t.home_callStartedTitle, format(t.home_callStartedMsg, skill.name))
     } catch (err: any) {
       showModal(t.errorTitle, err.message || t.failed)
     } finally {
@@ -318,7 +367,7 @@ export default function HomeScreen({ navigation }: any) {
           <View style={styles.section}>
             <View style={styles.sectionTitleRow}>
               <View style={styles.sectionTitleBar} />
-              <Text style={styles.sectionTitle}>{lang === 'zh' ? '快捷指令' : 'Shortcuts'}</Text>
+              <Text style={styles.sectionTitle}>{t.home_shortcuts}</Text>
             </View>
             <View style={styles.shortcutsGrid}>
               {[...pinned.filter(p => p.isShortcut)].sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)).map((item) => {
@@ -337,21 +386,28 @@ export default function HomeScreen({ navigation }: any) {
                   <TouchableOpacity
                     key={uid}
                     style={styles.shortcutCard}
-                    onPress={() => handleQuickRun(item)}
+                    onPress={() => {
+                      if (isRunning) {
+                        ScriptManager.stopScript()
+                      } else {
+                        handleQuickRun(item)
+                      }
+                    }}
                     onLongPress={() => {
                       setRenamingApi(item)
                       setRenameText(item.customName || item.name)
                       setShowRenameModal(true)
                     }}
-                    activeOpacity={0.7}
-                    disabled={isRunning}>
-                    <View style={[styles.shortcutIcon, { backgroundColor: bg }]}>
-                      {isRunning ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
+                    activeOpacity={0.7}>
+                    {isRunning ? (
+                      <BreathingView style={[styles.shortcutIcon, { backgroundColor: '#22C55E' }]}>
+                        <MIcon name="stop-circle-outline" size={24} color="#fff" />
+                      </BreathingView>
+                    ) : (
+                      <View style={[styles.shortcutIcon, { backgroundColor: bg }]}>
                         <MIcon name={icon} size={24} color="#fff" />
-                      )}
-                    </View>
+                      </View>
+                    )}
                     <Text style={styles.shortcutName} numberOfLines={2}>{item.customName || item.name}</Text>
                   </TouchableOpacity>
                 )
@@ -369,7 +425,7 @@ export default function HomeScreen({ navigation }: any) {
                 <Text style={styles.sectionTitle}>{t.automations}</Text>
               </View>
               <TouchableOpacity onPress={() => navigation.navigate('Automations')}>
-                <Text style={styles.seeAll}>{lang === 'zh' ? '管理' : 'Manage'}</Text>
+                <Text style={styles.seeAll}>{t.home_manage}</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.autoCardShadow}>
@@ -382,7 +438,7 @@ export default function HomeScreen({ navigation }: any) {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.autoName} numberOfLines={1}>{rule.skillName}</Text>
                       <View style={styles.autoScheduleRow}>
-                        <Icon name="clock" size={12} color={colors.ink500} style={{ marginRight: 5 }} />
+                        <Icon name="clock" size={12} color={colors.ink500} style={{ marginEnd: 5 }} />
                         <Text style={styles.autoSchedule}>
                           {rule.schedule.type === 'daily' ? `${t.daily} ${rule.schedule.time}` :
                            rule.schedule.type === 'weekly' ? `${t.weekly} ${rule.schedule.time}` :
@@ -405,25 +461,25 @@ export default function HomeScreen({ navigation }: any) {
           <View style={styles.section}>
             <View style={styles.sectionTitleRow}>
               <View style={styles.sectionTitleBar} />
-              <Text style={styles.sectionTitle}>{lang === 'zh' ? '快速开始' : 'Getting Started'}</Text>
+              <Text style={styles.sectionTitle}>{t.home_gettingStarted}</Text>
             </View>
             <View style={[styles.gettingStartedCardShadow, { marginTop: 16 }]}>
             <View style={styles.gettingStartedCard}>
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}>
                 <View style={[styles.gsIconWrap, { backgroundColor: '#eff6ff' }]}><Icon name="grid" size={18} color="#2563eb" /></View>
-                <Text style={styles.gsText}>{lang === 'zh' ? '浏览分身' : 'Browse Clones'}</Text>
+                <Text style={styles.gsText}>{t.home_browseClones}</Text>
                 <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
               <View style={styles.gsDivider} />
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Wallet')}>
                 <View style={[styles.gsIconWrap, { backgroundColor: '#ecfdf5' }]}><Icon name="credit-card" size={18} color="#059669" /></View>
-                <Text style={styles.gsText}>{lang === 'zh' ? '充值积分' : 'Top up credits'}</Text>
+                <Text style={styles.gsText}>{t.home_topUpCredits}</Text>
                 <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
               <View style={styles.gsDivider} />
               <TouchableOpacity style={styles.gsRow} activeOpacity={0.7} onPress={() => navigation.navigate('Main', { screen: 'ProfileTab' })}>
                 <View style={[styles.gsIconWrap, { backgroundColor: '#fef3c7' }]}><Icon name="user" size={18} color="#d97706" /></View>
-                <Text style={styles.gsText}>{lang === 'zh' ? '设置个人资料' : 'Set up your profile'}</Text>
+                <Text style={styles.gsText}>{t.home_setupProfile}</Text>
                 <Icon name="chevron-right" size={20} color="#94a3b8" />
               </TouchableOpacity>
             </View>
@@ -539,14 +595,14 @@ export default function HomeScreen({ navigation }: any) {
               onChangeText={setRenameText}
               autoFocus
               selectTextOnFocus
-              placeholder={lang === 'zh' ? '输入新名称' : 'Enter new name'}
+              placeholder={t.home_enterNewName}
               placeholderTextColor="#94a3b8"
             />
             <View style={styles.modalBtns}>
               <TouchableOpacity
                 style={styles.modalBtnCancel}
                 onPress={() => setShowRenameModal(false)}>
-                <Text style={styles.modalBtnCancelText}>{lang === 'zh' ? '取消' : 'Cancel'}</Text>
+                <Text style={styles.modalBtnCancelText}>{t.cancel}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalBtnPrimary}
@@ -554,13 +610,13 @@ export default function HomeScreen({ navigation }: any) {
                   if (renameText.trim()) rename(renamingApi?.shortcutId || renamingApi?.id, renameText.trim())
                   setShowRenameModal(false)
                 }}>
-                <Text style={styles.modalBtnPrimaryText}>{lang === 'zh' ? '保存' : 'Save'}</Text>
+                <Text style={styles.modalBtnPrimaryText}>{t.home_save}</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
               style={styles.modalUnpin}
               onPress={() => { unpin(renamingApi?.shortcutId || renamingApi?.id); setShowRenameModal(false) }}>
-              <Text style={styles.modalUnpinText}>{lang === 'zh' ? '移除快捷方式' : 'Remove shortcut'}</Text>
+              <Text style={styles.modalUnpinText}>{t.home_removeShortcut}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -690,7 +746,7 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 2,
     backgroundColor: colors.primary,
-    marginRight: 10,
+    marginEnd: 10,
   },
   sectionTitle: {
     fontSize: 18,
@@ -723,6 +779,17 @@ const styles = StyleSheet.create({
     color: colors.ink700,
     textAlign: 'center',
     lineHeight: 14,
+  },
+  runningDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#22C55E',
   },
 
   // Rename modal
@@ -798,7 +865,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 14,
+    marginEnd: 14,
   },
   callIcon: {
     width: 34,
@@ -806,7 +873,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginEnd: 12,
   },
   callInfo: { flex: 1 },
   callName: {
@@ -845,7 +912,7 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: radii.sm,
     backgroundColor: colors.primary50,
-    marginRight: 12,
+    marginEnd: 12,
     borderWidth: 2,
     borderColor: colors.primary200,
   },
@@ -860,7 +927,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.sand100,
   },
-  apiRowLeft: { flex: 1, marginRight: 12 },
+  apiRowLeft: { flex: 1, marginEnd: 12 },
   apiRowName: {
     fontSize: 14,
     fontWeight: fontWeight.semibold,
@@ -907,7 +974,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    paddingLeft: 20,
+    paddingStart: 20,
   },
   autoAccent: {
     position: 'absolute',
@@ -924,7 +991,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.success,
-    marginRight: 14,
+    marginEnd: 14,
   },
   autoName: {
     fontSize: 14,
@@ -944,8 +1011,8 @@ const styles = StyleSheet.create({
   autoDivider: {
     height: 1,
     backgroundColor: colors.sand200,
-    marginLeft: 42,
-    marginRight: 16,
+    marginStart: 42,
+    marginEnd: 16,
   },
   autoEmptyCard: {
     backgroundColor: colors.white,
@@ -990,7 +1057,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginEnd: 14,
   },
   gsText: {
     flex: 1,
@@ -1002,6 +1069,6 @@ const styles = StyleSheet.create({
   gsDivider: {
     height: 1,
     backgroundColor: colors.sand200,
-    marginLeft: 70,
+    marginStart: 70,
   },
 })

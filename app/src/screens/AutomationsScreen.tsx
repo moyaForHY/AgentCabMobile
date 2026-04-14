@@ -11,7 +11,7 @@ import {
 import { showModal } from '../components/AppModal'
 import { colors, fontWeight } from '../utils/theme'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useI18n } from '../i18n'
+import { useI18n, getLocale } from '../i18n'
 import {
   getRules,
   toggleRule,
@@ -65,9 +65,10 @@ export default function AutomationsScreen({ navigation }: any) {
   }
 
   const renderItem = ({ item }: { item: AutomationRule }) => {
-    const scheduleText = formatSchedule(item.schedule, lang as 'en' | 'zh')
+    // formatSchedule still takes 'en'|'zh' — non-zh langs get en format for now (migrated later)
+    const scheduleText = formatSchedule(item.schedule, lang === 'zh' ? 'zh' : 'en')
     const lastRunText = item.lastRun
-      ? new Date(item.lastRun).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+      ? new Date(item.lastRun).toLocaleString(getLocale(), {
           month: 'short',
           day: 'numeric',
           hour: '2-digit',
@@ -98,14 +99,14 @@ export default function AutomationsScreen({ navigation }: any) {
             onPress={() => navigation.navigate('CreateAutomation', { editRule: item })}
             activeOpacity={0.7}>
             <Icon name="edit-2" size={14} color={colors.primary} />
-            <Text style={s.ruleActionText}>{lang === 'zh' ? '编辑' : 'Edit'}</Text>
+            <Text style={s.ruleActionText}>{t.edit}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={s.ruleActionBtn}
             onPress={() => handleDelete(item)}
             activeOpacity={0.7}>
             <Icon name="trash-2" size={14} color="#dc2626" />
-            <Text style={[s.ruleActionText, { color: '#dc2626' }]}>{lang === 'zh' ? '删除' : 'Delete'}</Text>
+            <Text style={[s.ruleActionText, { color: '#dc2626' }]}>{t.delete}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -137,7 +138,7 @@ export default function AutomationsScreen({ navigation }: any) {
             style={s.emptyBtn}
             onPress={() => navigation.navigate('Main', { screen: 'DiscoverTab' })}
             activeOpacity={0.7}>
-            <Text style={s.emptyBtnText}>{lang === 'zh' ? '浏览分身' : 'Browse Clones'}</Text>
+            <Text style={s.emptyBtnText}>{t.home_browseClones}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -207,7 +208,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  ruleInfo: { flex: 1, marginRight: 12 },
+  ruleInfo: { flex: 1, marginEnd: 12 },
   ruleName: {
     fontSize: 15,
     fontWeight: fontWeight.semibold,
@@ -271,7 +272,7 @@ const s = StyleSheet.create({
     borderRadius: 1.25,
     bottom: '50%',
     left: '50%',
-    marginLeft: -1.25,
+    marginStart: -1.25,
   },
   clockHandMinute: {
     height: 10,

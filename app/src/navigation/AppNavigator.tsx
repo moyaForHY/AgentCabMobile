@@ -24,6 +24,7 @@ import TaskResultScreen from '../screens/TaskResultScreen'
 import AutomationsScreen from '../screens/AutomationsScreen'
 import CreateAutomationScreen from '../screens/CreateAutomationScreen'
 import ProviderScreen from '../screens/ProviderScreen'
+import EmailVerifyScreen from '../screens/EmailVerifyScreen'
 
 const Stack = createNativeStackNavigator()
 const Tab = createBottomTabNavigator()
@@ -198,6 +199,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Automations" component={AutomationsScreen} options={{ headerShown: false, headerBackTitle: ' ' } as any} />
             <Stack.Screen name="CreateAutomation" component={CreateAutomationScreen} options={{ headerShown: false, headerBackTitle: ' ' } as any} />
             <Stack.Screen name="Provider" component={ProviderScreen} options={{ headerShown: true, title: '', headerBackTitle: ' ' } as any} />
+            <Stack.Screen name="EmailVerify" component={EmailVerifyScreen} options={{ headerShown: false }} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

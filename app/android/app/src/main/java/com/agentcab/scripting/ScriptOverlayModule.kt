@@ -19,6 +19,16 @@ class ScriptOverlayModule(private val reactContext: ReactApplicationContext) :
         fun emitStopEvent() {
             moduleInstance?.sendEvent("onScriptStop", null)
         }
+
+        fun emitOverlayAction(action: String, dataJson: String) {
+            moduleInstance?.let { m ->
+                val params = Arguments.createMap().apply {
+                    putString("action", action)
+                    putString("data", dataJson)
+                }
+                m.sendEvent("onOverlayAction", params)
+            }
+        }
     }
 
     override fun getName(): String = NAME
@@ -84,6 +94,40 @@ class ScriptOverlayModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun updateStatus(status: String) {
         ScriptOverlayService.updateStatus(status)
+    }
+
+    @ReactMethod
+    fun startMemoOverlay(promise: Promise) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(reactContext)) {
+                promise.reject("NO_PERMISSION", "Overlay permission not granted")
+                return
+            }
+            ScriptOverlayService.startMemo(reactContext)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("START_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun showOverlayHtml(html: String, promise: Promise) {
+        try {
+            ScriptOverlayService.showHtml(html)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("SHOW_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun hideOverlayPanel(promise: Promise) {
+        try {
+            ScriptOverlayService.hidePanel()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("HIDE_ERROR", e.message, e)
+        }
     }
 
     @ReactMethod

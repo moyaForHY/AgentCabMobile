@@ -11,8 +11,7 @@ import {
 } from 'react-native'
 import Icon from 'react-native-vector-icons/Feather'
 import { colors, fontWeight, shadows, radii, spacing, fontSize as fs } from '../utils/theme'
-import { useI18n } from '../i18n'
-import { isChinese } from '../utils/i18n'
+import { useI18n, format } from '../i18n'
 import ScriptExecutor from '../components/ScriptExecutor'
 import { fetchCall, fetchSkillById, SITE_URL, api } from '../services/api'
 import { getAccessToken } from '../services/storage'
@@ -39,6 +38,29 @@ function formatElapsed(sec: number): string {
 function formatEstimate(avg: string): string {
   const sec = parseFloat(avg.replace('~', '').replace('s', ''))
   return sec < 60 ? `${Math.round(sec)}s` : `${Math.round(sec / 60)}min`
+}
+
+/**
+ * Strip large base64 blobs from task data before caching to AsyncStorage.
+ * Memo screenshot tasks embed `files_b64` arrays that are >1MB each —
+ * caching them blows up the SQLite DB (SQLITE_FULL).
+ */
+const BIG_BLOB_KEYS = new Set(['file_b64', 'files_b64', 'audio_b64', 'image_b64', 'images_b64'])
+function slimForCache(data: any): any {
+  if (data == null || typeof data !== 'object') return data
+  const strip = (obj: any): any => {
+    if (obj == null || typeof obj !== 'object') return obj
+    if (Array.isArray(obj)) return obj.map(strip)
+    const out: any = {}
+    for (const [k, v] of Object.entries(obj)) {
+      if (BIG_BLOB_KEYS.has(k)) continue
+      // Drop any string value that's obviously a base64 blob > 50KB
+      if (typeof v === 'string' && v.length > 50000) continue
+      out[k] = strip(v)
+    }
+    return out
+  }
+  return { ...data, input_data: strip(data.input_data), output_data: strip(data.output_data) }
 }
 
 export default function TaskResultScreen({ route, navigation }: any) {
@@ -68,8 +90,9 @@ export default function TaskResultScreen({ route, navigation }: any) {
       try {
         const data = await fetchCall(taskId)
         setCall(data)
-        // 3. Save to cache
-        storage.setStringAsync(cacheKey, JSON.stringify(data)).catch(() => {})
+        // 3. Save slim cache — strip large base64 blobs from input/output_data
+        //    (memo screenshot tasks embed 1MB+ files_b64 which blows up the DB).
+        storage.setStringAsync(cacheKey, JSON.stringify(slimForCache(data))).catch(() => {})
       } catch {}
       setLoading(false)
     })()
@@ -88,7 +111,7 @@ export default function TaskResultScreen({ route, navigation }: any) {
         const data = await fetchCall(taskId)
         setCall(data)
         const cacheKey = `task_result_${taskId}`
-        storage.setStringAsync(cacheKey, JSON.stringify(data)).catch(() => {})
+        storage.setStringAsync(cacheKey, JSON.stringify(slimForCache(data))).catch(() => {})
       } catch {}
     }, 3000)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
@@ -157,14 +180,14 @@ export default function TaskResultScreen({ route, navigation }: any) {
       {isPending && (
         <View style={s.processingCard}>
           <View style={s.processingHeader}>
-            <ActivityIndicator size="small" color="#2563eb" style={{ marginRight: 8 }} />
+            <ActivityIndicator size="small" color="#2563eb" style={{ marginEnd: 8 }} />
             <Text style={s.processingTitle}>
-              {isChinese() ? '处理中' : 'Processing'} · {formatElapsed(elapsed)}
-              {estimatedTime ? ` (${isChinese() ? '预计' : 'est.'} ~${formatEstimate(estimatedTime)})` : ''}
+              {t.processing} · {formatElapsed(elapsed)}
+              {estimatedTime ? ` (${t.taskResult_estimated} ~${formatEstimate(estimatedTime)})` : ''}
             </Text>
           </View>
           <Text style={s.processingHint}>
-            {isChinese() ? '如果长时间无响应，请尝试刷新' : 'Try refreshing if no response for a long time'}
+            {t.taskResult_retryHint}
           </Text>
         </View>
       )}
@@ -175,7 +198,7 @@ export default function TaskResultScreen({ route, navigation }: any) {
           name={isOk ? 'check-circle' : isFailed ? 'x-circle' : 'loader'}
           size={15}
           color={statusColor}
-          style={{ marginRight: 6 }}
+          style={{ marginEnd: 6 }}
         />
         <Text style={[s.statusText, { color: statusColor }]}>{statusLabel}</Text>
       </View>
@@ -214,17 +237,6 @@ export default function TaskResultScreen({ route, navigation }: any) {
         <ActionsSection actions={output.actions} t={t} taskId={taskId} />
       )}
 
-      {/* Re-run button */}
-      {call.skill_id && (
-        <TouchableOpacity
-          style={s.rerunButton}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('SkillDetail', { skillId: call.skill_id, autoUse: false, preInputValues: call.input_data })}>
-          <Icon name="refresh-cw" size={16} color={colors.primary} style={{ marginRight: 8 }} />
-          <Text style={s.rerunText}>{isChinese() ? '再次调用' : 'Re-run'}</Text>
-        </TouchableOpacity>
-      )}
-
       {/* Script files — rendered separately, not inside card */}
       {outputFiles.filter((f: any) => {
         const name = f.filename || f.original_filename || ''
@@ -244,54 +256,23 @@ export default function TaskResultScreen({ route, navigation }: any) {
         })} callId={call.id} />
       )}
 
-      {/* Output Data — Beautified */}
-      {output && typeof output === 'object' && <OutputBeautified output={output} t={t} />}
-
-      {/* Output Data — Raw */}
-      {output && (
-        <CollapsibleSection
-          title={t.rawData}
-          right={
-            <View style={s.actionRow}>
-              <TouchableOpacity
-                onPress={() => { writeClipboard(typeof output === 'string' ? output : JSON.stringify(output, null, 2)); showModal(t.copied) }}
-                activeOpacity={0.6}>
-                <Text style={s.actionText}>{t.copy}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => shareText(typeof output === 'string' ? output : JSON.stringify(output, null, 2))}
-                activeOpacity={0.6}>
-                <Text style={s.actionText}>{t.share}</Text>
-              </TouchableOpacity>
-            </View>
-          }>
-          <TruncatedCode text={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
-        </CollapsibleSection>
+      {/* Data Tabs: Output / Raw / Input */}
+      {(output || input) && (
+        <DataTabs output={output} input={input} inputFiles={inputFiles} t={t} />
       )}
 
-      {/* Input Files */}
-      {inputFiles.length > 0 && (
-        <View style={s.cardShadow}><View style={s.card}>
-          <Text style={s.sectionTitle}>{t.inputFiles}</Text>
-          {inputFiles.map((file: any) => (
-            <View key={file.id} style={s.fileRow}>
-              <View style={s.fileInfo}>
-                <Text style={s.fileName} numberOfLines={1}>{file.filename || file.original_filename}</Text>
-                <Text style={s.fileMeta}>{file.mime_type}</Text>
-              </View>
-            </View>
-          ))}
-        </View></View>
+      {/* Re-run button */}
+      {call.skill_id && (
+        <TouchableOpacity
+          style={s.rerunButton}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('SkillDetail', { skillId: call.skill_id, autoUse: false, preInputValues: call.input_data })}>
+          <Icon name="refresh-cw" size={16} color={colors.primary} style={{ marginEnd: 8 }} />
+          <Text style={s.rerunText}>{t.taskResult_rerun}</Text>
+        </TouchableOpacity>
       )}
 
-      {/* Input Data */}
-      {input && (
-        <CollapsibleSection title={t.input}>
-          <TruncatedCode text={typeof input === 'string' ? input : JSON.stringify(input, null, 2)} />
-        </CollapsibleSection>
-      )}
-
-      {/* Review — at the bottom */}
+      {/* Review */}
       {isOk && call.skill_id && (
         <ReviewInput skillId={call.skill_id} />
       )}
@@ -302,12 +283,13 @@ export default function TaskResultScreen({ route, navigation }: any) {
 }
 
 function HtmlPreviewModal({ uri, filename, onClose }: { uri: string; filename: string; onClose: () => void }) {
+  const { t } = useI18n()
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: '#fff' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 48, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
           <TouchableOpacity onPress={onClose}><Icon name="x" size={24} color={colors.ink700} /></TouchableOpacity>
-          <Text style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '500', color: colors.ink950 }} numberOfLines={1}>{filename}</Text>
+          <Text style={{ flex: 1, marginStart: 12, fontSize: 16, fontWeight: '500', color: colors.ink950 }} numberOfLines={1}>{filename}</Text>
         </View>
         <WebView
           source={{ uri }}
@@ -329,12 +311,12 @@ function HtmlPreviewModal({ uri, filename, onClose }: { uri: string; filename: s
               await ReactNativeBlobUtil.fs.writeFile(destPath, base64, 'base64')
               await ReactNativeBlobUtil.android.actionViewIntent(destPath, 'text/html')
             } catch (e: any) {
-              showModal(isChinese() ? '打开失败' : 'Failed')
+              showModal(t.taskResult_openFailed)
             }
           }}>
           <Icon name="share" size={18} color="#fff" />
           <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>
-            {isChinese() ? '用其他应用打开' : 'Open with...'}
+            {t.taskResult_openWith}
           </Text>
         </TouchableOpacity>
       </View>
@@ -342,7 +324,94 @@ function HtmlPreviewModal({ uri, filename, onClose }: { uri: string; filename: s
   )
 }
 
+function DataTabs({ output, input, inputFiles, t }: { output: any; input: any; inputFiles: any[]; t: any }) {
+  const [tab, setTab] = useState<'output' | 'raw' | 'input'>('output')
+  const tabs = [
+    { key: 'output' as const, label: t.output, show: output && typeof output === 'object' },
+    { key: 'raw' as const, label: t.rawData, show: !!output },
+    { key: 'input' as const, label: t.input, show: !!input },
+  ].filter(t => t.show)
+
+  return (
+    <View style={s.cardShadow}><View style={s.card}>
+      <View style={{ flexDirection: 'row', marginBottom: 12, paddingHorizontal: spacing.lg, paddingTop: spacing.md, flexWrap: 'wrap' }}>
+        {tabs.map(item => (
+          <TouchableOpacity
+            key={item.key}
+            onPress={() => setTab(item.key)}
+            style={{
+              paddingVertical: 6,
+              paddingHorizontal: 14,
+              borderRadius: 16,
+              backgroundColor: tab === item.key ? colors.primary + '15' : 'transparent',
+              marginEnd: 8,
+            }}
+            activeOpacity={0.7}>
+            <Text style={{
+              fontSize: fs.sm,
+              color: tab === item.key ? colors.primary : colors.ink400,
+              fontWeight: fontWeight.semibold,
+            }}>{item.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
+        {tab === 'raw' && (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <TouchableOpacity
+              onPress={() => { writeClipboard(typeof output === 'string' ? output : JSON.stringify(output, null, 2)); showModal(t.copied) }}
+              activeOpacity={0.6}>
+              <Text style={s.actionText}>{t.copy}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => shareText(typeof output === 'string' ? output : JSON.stringify(output, null, 2))}
+              activeOpacity={0.6}
+              style={{ marginStart: 12 }}>
+              <Text style={s.actionText}>{t.share}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {tab === 'output' && output && typeof output === 'object' && (
+          <OutputBeautifiedInline output={output} t={t} />
+        )}
+        {tab === 'raw' && output && (
+          <TruncatedCode text={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
+        )}
+        {tab === 'input' && (
+          <>
+            {inputFiles.length > 0 && (
+              <View style={{ marginBottom: 12 }}>
+                {inputFiles.map((file: any) => (
+                  <View key={file.id} style={s.fileRow}>
+                    <View style={s.fileInfo}>
+                      <Text style={s.fileName} numberOfLines={1}>{file.filename || file.original_filename}</Text>
+                      <Text style={s.fileMeta}>{file.mime_type}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+            {input && <TruncatedCode text={typeof input === 'string' ? input : JSON.stringify(input, null, 2)} />}
+          </>
+        )}
+      </View>
+    </View></View>
+  )
+}
+
+function AutoImage({ uri, height }: { uri: string; height: number }) {
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    Image.getSize(uri, (w, h) => {
+      setWidth(Math.round((w / h) * height))
+    }, () => {})
+  }, [uri, height])
+  if (!width) return <ActivityIndicator style={{ height }} color={colors.primary} />
+  return <Image source={{ uri }} style={{ width, height }} resizeMode="contain" />
+}
+
 function ScriptFileExecutor({ fileId, filename }: { fileId: string; filename: string }) {
+  const { t } = useI18n()
   const [script, setScript] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -375,7 +444,7 @@ function ScriptFileExecutor({ fileId, filename }: { fileId: string; filename: st
   if (error || !script) {
     return (
       <View style={{ padding: 16 }}>
-        <Text style={{ color: colors.ink500, fontSize: 13 }}>{isChinese() ? '脚本加载失败' : 'Failed to load script'}: {error}</Text>
+        <Text style={{ color: colors.ink500, fontSize: 13 }}>{t.taskResult_scriptLoadFailed}: {error}</Text>
       </View>
     )
   }
@@ -443,17 +512,15 @@ function OutputFilesSection({ files, callId }: { files: any[]; callId: string })
     })()
   }, [files])
 
-  const zh = isChinese()
-
   const formatExpiry = (expiresAt: string) => {
     if (!expiresAt) return ''
     const remaining = new Date(expiresAt).getTime() - Date.now()
-    if (remaining <= 0) return zh ? '已过期' : 'Expired'
+    if (remaining <= 0) return t.taskResult_expired
     const hours = Math.floor(remaining / 3600000)
-    if (hours >= 24) return zh ? `${Math.floor(hours / 24)}天后过期` : `Expires in ${Math.floor(hours / 24)}d`
-    if (hours > 0) return zh ? `${hours}小时后过期` : `Expires in ${hours}h`
+    if (hours >= 24) return format(t.taskResult_expiresInDays, Math.floor(hours / 24))
+    if (hours > 0) return format(t.taskResult_expiresInHours, hours)
     const mins = Math.floor(remaining / 60000)
-    return zh ? `${mins}分钟后过期` : `Expires in ${mins}m`
+    return format(t.taskResult_expiresInMinutes, mins)
   }
 
   return (
@@ -492,21 +559,18 @@ function OutputFilesSection({ files, callId }: { files: any[]; callId: string })
                 style={s.thumbContainer}>
                 {cached ? (
                   isImage ? (
-                    <>
-                    <Image source={{ uri: cached }} style={s.thumbImage} resizeMode="contain" />
-                    {expiry ? <Text style={{ fontSize: 11, color: colors.ink400, textAlign: 'center', paddingVertical: 4 }}>{expiry}</Text> : null}
-                    </>
+                    <AutoImage uri={cached} height={220} />
                   ) : (
                     <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' }]}>
                       <Icon name={isPdf ? 'file-text' : 'globe'} size={32} color={colors.ink400} />
                       <Text style={{ color: colors.ink500, fontSize: 12, marginTop: 6 }}>{isPdf ? 'PDF' : 'HTML'}</Text>
-                      <Text style={{ color: colors.primary, fontSize: 12, marginTop: 2 }}>{isChinese() ? '点击预览' : 'Tap to preview'}</Text>
+                      <Text style={{ color: colors.primary, fontSize: 12, marginTop: 2 }}>{t.taskResult_tapToPreview}</Text>
                     </View>
                   )
                 ) : failedFiles.has(file.id) ? (
                   <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f8f8' }]}>
                     <Icon name="alert-circle" size={24} color={colors.ink400} />
-                    <Text style={{ color: colors.ink400, fontSize: 12, marginTop: 4 }}>{zh ? '文件已过期' : 'File expired'}</Text>
+                    <Text style={{ color: colors.ink400, fontSize: 12, marginTop: 4 }}>{t.taskResult_fileExpired}</Text>
                   </View>
                 ) : (
                   <View style={[s.thumbImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f1f5f9' }]}>
@@ -525,7 +589,7 @@ function OutputFilesSection({ files, callId }: { files: any[]; callId: string })
               <View style={s.fileRow}>
                 <View style={s.fileInfo}>
                   <Text style={[s.fileName, { color: colors.ink400 }]} numberOfLines={1}>{downloadName}</Text>
-                  <Text style={s.fileMeta}>{isChinese() ? '文件已过期' : 'File expired'}</Text>
+                  <Text style={s.fileMeta}>{t.taskResult_fileExpired}</Text>
                 </View>
               </View>
             ) : (
@@ -836,6 +900,60 @@ function OutputBeautified({ output, t }: { output: any; t: any }) {
   )
 }
 
+function OutputBeautifiedInline({ output, t }: { output: any; t: any }) {
+  const hasMessage = typeof output.message === 'string'
+  const hasSections = Array.isArray(output.sections) && output.sections.length > 0
+  const healthScore = output.health_score ?? output.healthScore
+  const safetyScore = output.safety_score ?? output.safetyScore
+  const hasScores = healthScore != null || safetyScore != null
+  const hasFunFacts = Array.isArray(output.fun_facts) && output.fun_facts.length > 0
+  const hasAlerts = Array.isArray(output.alerts) && output.alerts.length > 0
+  const hasBeautified = hasMessage || hasSections || hasScores || hasFunFacts || hasAlerts
+
+  if (!hasBeautified) return <TruncatedCode text={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
+
+  return (
+    <View>
+      {hasMessage && (
+        <View style={s.summaryBox}>
+          <Text style={s.summaryText}>{output.message}</Text>
+        </View>
+      )}
+      {hasScores && (
+        <View style={s.scoresRow}>
+          {healthScore != null && <ScoreBadge label={t.healthScore} score={healthScore} />}
+          {safetyScore != null && <ScoreBadge label={t.safetyScore} score={safetyScore} />}
+        </View>
+      )}
+      {hasSections && output.sections.map((sec: any, idx: number) => (
+        <View key={idx} style={s.sectionCard}>
+          {sec.title && <Text style={s.sectionCardTitle}>{sec.title}</Text>}
+          {sec.description && <Text style={s.sectionCardDesc}>{sec.description}</Text>}
+        </View>
+      ))}
+      {hasAlerts && (
+        <View style={s.alertsContainer}>
+          <Text style={s.alertsTitle}>{t.alerts}</Text>
+          {output.alerts.map((alert: any, idx: number) => (
+            <AlertItem key={idx} alert={alert} />
+          ))}
+        </View>
+      )}
+      {hasFunFacts && (
+        <View style={s.funFactsContainer}>
+          <Text style={s.funFactsTitle}>{t.funFacts}</Text>
+          {output.fun_facts.map((fact: string, idx: number) => (
+            <View key={idx} style={s.funFactRow}>
+              <Text style={s.funFactBullet}>{'  \u2022  '}</Text>
+              <Text style={s.funFactText}>{fact}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  )
+}
+
 const TRUNCATE_LIMIT = 2000
 
 function TruncatedCode({ text }: { text: string }) {
@@ -931,7 +1049,7 @@ const s = StyleSheet.create({
   processingHint: {
     fontSize: fs.xs,
     color: colors.ink600,
-    marginLeft: 28,
+    marginStart: 28,
     marginTop: 2,
   },
 
@@ -962,7 +1080,7 @@ const s = StyleSheet.create({
     borderRadius: radii.lg,
     overflow: 'hidden',
   },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: spacing.md },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginStart: spacing.md },
 
   // Info rows
   infoRow: {
@@ -1004,7 +1122,7 @@ const s = StyleSheet.create({
   collapseArrow: {
     fontSize: 13,
     color: colors.ink400,
-    marginRight: spacing.sm,
+    marginEnd: spacing.sm,
     width: 14,
   },
   actionRow: {
@@ -1047,7 +1165,7 @@ const s = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.primary,
     marginTop: 6,
-    marginRight: spacing.sm + 2,
+    marginEnd: spacing.sm + 2,
   },
   actionLabel: {
     fontSize: fs.sm,
@@ -1083,7 +1201,7 @@ const s = StyleSheet.create({
     borderRadius: radii.sm,
     paddingVertical: spacing.sm + 2,
     paddingHorizontal: spacing.md,
-    marginLeft: spacing.sm + 4,
+    marginStart: spacing.sm + 4,
     ...shadows.sm,
   },
   actionGroupBtnDone: {
@@ -1130,10 +1248,12 @@ const s = StyleSheet.create({
     borderRadius: radii.md,
     overflow: 'hidden',
     backgroundColor: colors.sand100,
+    alignSelf: 'center',
   },
   thumbImage: {
     width: '100%',
     height: 220,
+    resizeMode: 'contain',
   },
   fileRow: {
     flexDirection: 'row',
@@ -1144,7 +1264,7 @@ const s = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.sand200,
   },
-  fileInfo: { flex: 1, marginRight: spacing.sm + 4 },
+  fileInfo: { flex: 1, marginEnd: spacing.sm + 4 },
   fileName: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.ink950 },
   fileMeta: { fontSize: fs.xs, color: colors.ink500, marginTop: 3 },
   downloadBtn: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.primary },
@@ -1231,7 +1351,7 @@ const s = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginTop: 5,
-    marginRight: spacing.sm + 2,
+    marginEnd: spacing.sm + 2,
   },
   alertTitle: {
     fontSize: fs.sm,

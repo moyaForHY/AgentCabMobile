@@ -3,7 +3,7 @@
  * Embedded in TaskResultScreen when output contains a script.
  */
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -11,16 +11,13 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  NativeModules,
-  DeviceEventEmitter,
-  Platform,
+  Clipboard,
 } from 'react-native'
-import BackgroundService from 'react-native-background-actions'
 import Icon from 'react-native-vector-icons/Feather'
 import { colors, fontWeight, radii, shadows } from '../utils/theme'
 import { ScriptEngine } from '../scripting'
-import { createBridge } from '../scripting/bridge'
-import { isChinese } from '../utils/i18n'
+import { ScriptManager } from '../scripting/ScriptManager'
+import { useI18n, format } from '../i18n'
 import { usePinnedApis, type PinnedApi } from '../hooks/usePinnedApis'
 import { showModal } from './AppModal'
 
@@ -30,17 +27,25 @@ type Props = {
 }
 
 export default function ScriptExecutor({ script, title }: Props) {
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState(() => ScriptManager.isRunning())
   const [logs, setLogs] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [showCode, setShowCode] = useState(false)
-  const engineRef = useRef<ScriptEngine | null>(null)
-  const logsRef = useRef<ScrollView>(null)
-  const zh = isChinese()
+  const logsRef = React.useRef<ScrollView>(null)
+  const scriptIdRef = React.useRef<string>('')
+  const { t } = useI18n()
   const { pin } = usePinnedApis()
 
+  // 监听脚本状态变化
+  React.useEffect(() => {
+    const unsubscribe = ScriptManager.onStateChange(() => {
+      setRunning(ScriptManager.isRunning())
+    })
+    return unsubscribe
+  }, [])
+
   const handleSaveShortcut = useCallback(async () => {
-    const name = title || (zh ? '自动化脚本' : 'Script')
+    const name = title || t.home_defaultScriptName
     const sid = `script_${Date.now()}`
     const entry: PinnedApi = {
       id: sid,
@@ -50,107 +55,55 @@ export default function ScriptExecutor({ script, title }: Props) {
       script,
     }
     await pin(entry)
-    showModal(
-      zh ? '已保存' : 'Saved',
-      zh ? `"${name}" 已添加到快捷指令` : `"${name}" added to Shortcuts`,
-    )
-  }, [script, title, zh, pin])
+    showModal(t.scriptExec_savedTitle, format(t.scriptExec_savedMsg, name))
+  }, [script, title, t, pin])
 
   const handleRun = useCallback(async () => {
     setRunning(true)
     setLogs([])
     setError(null)
 
-    // Start overlay for floating logs
-    const OverlayManager = NativeModules.ScriptOverlayManager
-    if (Platform.OS === 'android' && OverlayManager) {
-      try {
-        const canDraw = await OverlayManager.canDrawOverlays()
-        if (!canDraw) {
-          await OverlayManager.requestOverlayPermission()
+    const scriptName = title || t.home_defaultScriptName
+    const tryStart = async () => {
+      const sid = `script_${Date.now()}`
+      scriptIdRef.current = sid
+      const result = await ScriptManager.startScript(
+        sid,
+        scriptName,
+        script,
+        (msg) => setLogs(prev => [...prev, msg]),
+      )
+      if (!result.started) {
+        if (result.conflictWith) {
           setRunning(false)
-          return
+          showModal(
+            t.home_scriptRunningTitle,
+            format(t.home_scriptRunningMsg, result.conflictWith, scriptName),
+            [
+              { text: t.cancel, style: 'cancel' },
+              {
+                text: t.home_stopAndStart,
+                onPress: async () => {
+                  ScriptManager.stopScript()
+                  setRunning(true)
+                  await tryStart()
+                },
+              },
+            ],
+          )
+        } else {
+          setError(result.error || 'Failed to start')
+          setRunning(false)
         }
-        await OverlayManager.startOverlay()
-      } catch {}
-    }
-
-    // Listen for stop from overlay
-    const stopSub = DeviceEventEmitter.addListener('onScriptStop', () => {
-      engineRef.current?.cancel()
-    })
-
-    // The actual script execution function
-    const runScript = async () => {
-      const bridge = createBridge((msg) => {
-        setLogs(prev => [...prev, msg])
-      })
-
-      const engine = new ScriptEngine(bridge, {})
-      engineRef.current = engine
-
-      const result = await engine.run(script)
-
-      if (!result.success) {
-        console.log('[Script] ERROR:', result.error || 'Unknown error')
-        setError(result.error || 'Unknown error')
       }
-      engineRef.current = null
     }
+    await tryStart()
+  }, [script, title, t])
 
-    // Run inside BackgroundService to keep JS thread alive
-    if (Platform.OS === 'android') {
-      try {
-        await BackgroundService.start(runScript, {
-          taskName: 'AgentCab Script',
-          taskTitle: zh ? '脚本运行中' : 'Script Running',
-          taskDesc: zh ? '自动化脚本正在执行...' : 'Automation script is executing...',
-          taskIcon: { name: 'ic_launcher', type: 'mipmap' },
-          color: '#2563eb',
-          linkingURI: 'agentcab://',
-        })
-        // BackgroundService.start returns immediately, script runs in background
-        // Wait for it to complete
-        await new Promise<void>((resolve) => {
-          const check = setInterval(() => {
-            if (!engineRef.current) {
-              clearInterval(check)
-              resolve()
-            }
-          }, 1000)
-        })
-        await BackgroundService.stop()
-      } catch (e: any) {
-        // Fallback: run without background service
-        await runScript()
-      }
-    } else {
-      await runScript()
-    }
-
-    setRunning(false)
-    stopSub.remove()
-
-    // Stop overlay
-    if (Platform.OS === 'android' && OverlayManager) {
-      try { await OverlayManager.stopOverlay() } catch {}
-    }
-  }, [script, zh])
-
-  const handleStop = useCallback(async () => {
-    engineRef.current?.cancel()
-    setLogs(prev => [...prev, zh ? '⏹ 已停止' : '⏹ Stopped'])
-    setRunning(false)
-
-    // Stop background service
-    try { await BackgroundService.stop() } catch {}
-
-    // Stop overlay
-    const OverlayManager = NativeModules.ScriptOverlayManager
-    if (Platform.OS === 'android' && OverlayManager) {
-      try { OverlayManager.stopOverlay() } catch {}
-    }
-  }, [zh])
+  const handleStop = useCallback(() => {
+    ScriptManager.stopScript(scriptIdRef.current)
+    setLogs(prev => [...prev, t.scriptExec_stopped])
+  }, [t])
 
   // Validate script on mount
   const validation = ScriptEngine.validate(script)
@@ -160,13 +113,13 @@ export default function ScriptExecutor({ script, title }: Props) {
       {/* Header */}
       <View style={s.header}>
         <Icon name="terminal" size={18} color={colors.primary} />
-        <Text style={s.headerTitle}>{title || (zh ? '自动化脚本' : 'Automation Script')}</Text>
+        <Text style={s.headerTitle}>{title || t.scriptExec_scriptTitle}</Text>
       </View>
 
       {/* Code preview (collapsible) */}
       <TouchableOpacity style={s.codeToggle} onPress={() => setShowCode(!showCode)} activeOpacity={0.7}>
         <Icon name="code" size={14} color={colors.ink500} />
-        <Text style={s.codeToggleText}>{showCode ? (zh ? '隐藏代码' : 'Hide Code') : (zh ? '查看代码' : 'View Code')}</Text>
+        <Text style={s.codeToggleText}>{showCode ? t.scriptExec_hideCode : t.scriptExec_viewCode}</Text>
         <Icon name={showCode ? 'chevron-up' : 'chevron-down'} size={14} color={colors.ink400} />
       </TouchableOpacity>
 
@@ -194,35 +147,34 @@ export default function ScriptExecutor({ script, title }: Props) {
               disabled={!validation.valid || running}
               activeOpacity={0.8}>
               <Icon name="play" size={16} color="#fff" />
-              <Text style={s.runBtnText}>{zh ? '执行脚本' : 'Execute'}</Text>
+              <Text style={s.runBtnText}>{t.scriptExec_execute}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={s.shortcutBtn}
               onPress={handleSaveShortcut}
               activeOpacity={0.7}>
-              <Icon name="plus-square" size={18} color={colors.primary} />
+              <Icon name="zap" size={15} color={colors.primary} />
             </TouchableOpacity>
           </View>
         ) : (
           <TouchableOpacity style={s.stopBtn} onPress={handleStop} activeOpacity={0.8}>
             <Icon name="square" size={14} color="#fff" />
-            <Text style={s.stopBtnText}>{zh ? '停止' : 'Stop'}</Text>
+            <Text style={s.stopBtnText}>{t.scriptExec_stop}</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Running indicator */}
-      {running && (
-        <View style={s.runningBar}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={s.runningText}>{zh ? '脚本运行中...' : 'Running...'}</Text>
-        </View>
-      )}
 
       {/* Logs */}
       {logs.length > 0 && (
         <View style={s.logsContainer}>
-          <Text style={s.logsTitle}>{zh ? '日志' : 'Logs'}</Text>
+          <View style={s.logsHeader}>
+            <Text style={s.logsTitle}>{t.scriptExec_logs}</Text>
+            <TouchableOpacity onPress={() => { Clipboard.setString(logs.join('\n')); }} style={s.copyBtn}>
+              <Icon name="copy" size={13} color="#666" />
+              <Text style={s.copyBtnText}>{t.copy}</Text>
+            </TouchableOpacity>
+          </View>
           <ScrollView ref={logsRef} style={s.logsScroll} nestedScrollEnabled>
             {logs.map((log, i) => (
               <Text key={i} style={s.logLine}>
@@ -246,7 +198,7 @@ export default function ScriptExecutor({ script, title }: Props) {
       {!running && logs.length > 0 && !error && (
         <View style={s.doneBox}>
           <Icon name="check-circle" size={14} color="#059669" />
-          <Text style={s.doneText}>{zh ? '执行完成' : 'Completed'}</Text>
+          <Text style={s.doneText}>{t.completed}</Text>
         </View>
       )}
     </View>
@@ -274,8 +226,6 @@ const s = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.ink950,
   },
-
-  // Code toggle
   codeToggle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -289,8 +239,6 @@ const s = StyleSheet.create({
     color: colors.ink500,
     fontWeight: fontWeight.medium,
   },
-
-  // Code block
   codeBlock: {
     maxHeight: 200,
     marginHorizontal: 16,
@@ -305,8 +253,6 @@ const s = StyleSheet.create({
     color: '#e2e8f0',
     lineHeight: 18,
   },
-
-  // Validation
   validationError: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -322,8 +268,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     color: '#dc2626',
   },
-
-  // Buttons
   btnRow: {
     paddingHorizontal: 16,
     paddingBottom: 12,
@@ -347,9 +291,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: radii.md,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    backgroundColor: '#eff6ff',
+    backgroundColor: '#f0f4ff',
   },
   runBtnDisabled: {
     opacity: 0.4,
@@ -373,8 +315,6 @@ const s = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: '#fff',
   },
-
-  // Running
   runningBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -387,11 +327,15 @@ const s = StyleSheet.create({
     color: colors.primary,
     fontWeight: fontWeight.medium,
   },
-
-  // Logs
   logsContainer: {
     marginHorizontal: 16,
     marginBottom: 12,
+  },
+  logsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   logsTitle: {
     fontSize: 12,
@@ -399,7 +343,19 @@ const s = StyleSheet.create({
     color: colors.ink500,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    marginBottom: 6,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: '#f1f5f9',
+  },
+  copyBtnText: {
+    fontSize: 11,
+    color: '#666',
   },
   logsScroll: {
     maxHeight: 150,
@@ -416,8 +372,6 @@ const s = StyleSheet.create({
   logLineNum: {
     color: colors.ink400,
   },
-
-  // Error
   errorBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -434,8 +388,6 @@ const s = StyleSheet.create({
     color: '#dc2626',
     lineHeight: 17,
   },
-
-  // Done
   doneBox: {
     flexDirection: 'row',
     alignItems: 'center',

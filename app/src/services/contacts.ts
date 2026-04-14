@@ -3,7 +3,8 @@
  * Exposes native ContactsManager module to TypeScript.
  * Enables APIs to read and search device contacts.
  */
-import { NativeModules, Platform, PermissionsAndroid, Linking } from 'react-native'
+import { NativeModules, Platform, Linking } from 'react-native'
+import { requirePermission } from './permissionGate'
 
 const { ContactsManager } = NativeModules
 
@@ -19,31 +20,7 @@ export type ContactInfo = {
  */
 export async function requestContactsPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return false
-
-  const permission = PermissionsAndroid.PERMISSIONS.READ_CONTACTS
-
-  const granted = await PermissionsAndroid.check(permission)
-  if (granted) return true
-
-  const result = await PermissionsAndroid.request(permission, {
-    title: 'Contacts Access',
-    message: 'AgentCab needs access to your contacts to help you manage them.',
-    buttonPositive: 'Allow',
-    buttonNegative: 'Deny',
-  })
-
-  if (result === PermissionsAndroid.RESULTS.GRANTED) return true
-
-  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-    const { showModal } = require('../components/AppModal')
-    const { permissionStrings, openPermissionEditor } = require('../utils/i18n')
-    const s = permissionStrings('contacts')
-    showModal(s.title, s.message, [
-      { text: s.goSettings, onPress: () => openPermissionEditor() },
-      { text: s.cancel, style: 'cancel' as const },
-    ])
-  }
-  return false
+  return await requirePermission('contacts')
 }
 
 /**
@@ -84,19 +61,8 @@ export async function saveContact(params: SaveContactParams): Promise<void> {
     throw new Error('saveContact is only supported on Android')
   }
 
-  // Request WRITE_CONTACTS permission
-  const granted = await PermissionsAndroid.request(
-    PermissionsAndroid.PERMISSIONS.WRITE_CONTACTS,
-    {
-      title: 'Contacts Access',
-      message: 'AgentCab needs permission to save contacts.',
-      buttonPositive: 'Allow',
-      buttonNegative: 'Deny',
-    },
-  )
-  if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-    throw new Error('WRITE_CONTACTS permission denied')
-  }
+  const ok = await requirePermission('contacts')
+  if (!ok) throw new Error('通讯录权限未开启')
 
   // Build intent URI for ContactsContract.Intents.Insert
   // Uses content://com.android.contacts/contacts with extras via intent URI

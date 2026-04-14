@@ -15,7 +15,7 @@ import ReactNativeBlobUtil from 'react-native-blob-util'
 import { downloadToDevice } from '../services/fileDownloader'
 import { showModal } from './AppModal'
 import { getAccessToken } from '../services/storage'
-import { isChinese } from '../utils/i18n'
+import { useI18n } from '../i18n'
 
 const { width: W, height: H } = Dimensions.get('window')
 
@@ -27,6 +27,7 @@ type Props = {
 }
 
 export default function PdfPreview({ visible, uri, filename, onClose }: Props) {
+  const { t } = useI18n()
   const [saving, setSaving] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
@@ -48,7 +49,7 @@ export default function PdfPreview({ visible, uri, filename, onClose }: Props) {
       }
     } catch (e: any) {
       console.log('[PdfSave] error:', e?.message)
-      showModal(isChinese() ? '保存失败' : 'Failed')
+      showModal(t.preview_saveFailed)
     } finally {
       setSaving(false)
     }
@@ -75,7 +76,7 @@ export default function PdfPreview({ visible, uri, filename, onClose }: Props) {
           style={s.pdf}
           onLoadComplete={(numberOfPages) => setTotalPages(numberOfPages)}
           onPageChanged={(p) => setPage(p)}
-          onError={() => showModal(isChinese() ? '加载失败' : 'Load failed')}
+          onError={() => showModal(t.preview_loadFailed)}
           enablePaging
         />
 
@@ -86,7 +87,7 @@ export default function PdfPreview({ visible, uri, filename, onClose }: Props) {
           ) : (
             <>
               <Icon name="share" size={18} color="#fff" />
-              <Text style={s.saveBtnText}>{isChinese() ? '用其他应用打开' : 'Open with...'}</Text>
+              <Text style={s.saveBtnText}>{t.taskResult_openWith}</Text>
             </>
           )}
         </TouchableOpacity>

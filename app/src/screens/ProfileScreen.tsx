@@ -23,11 +23,13 @@ import { useI18n } from '../i18n'
 import { fetchWallet, resetApiKey, fetchMySkills, updateProfile, uploadAvatar, SITE_URL, type Skill } from '../services/api'
 import ImageCropPicker from 'react-native-image-crop-picker'
 import { useCachedData } from '../hooks/useCachedData'
+import LanguagePicker from '../components/LanguagePicker'
 
 export default function ProfileScreen({ navigation }: any) {
   const insets = useSafeAreaInsets()
   const { user, logout, refreshUser } = useAuth()
-  const { t, lang, setLang } = useI18n()
+  const { t } = useI18n()
+  const [languagePickerVisible, setLanguagePickerVisible] = useState(false)
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [keyVisible, setKeyVisible] = useState(false)
   const [apisExpanded, setApisExpanded] = useState(false)
@@ -121,7 +123,7 @@ export default function ProfileScreen({ navigation }: any) {
       await refreshUser()
       setAvatarCacheBuster(`?t=${Date.now()}`)
       setUploadingAvatar(false)
-      showModal(t.done, lang === 'zh' ? '头像已更新' : 'Avatar updated')
+      showModal(t.done, t.profile_avatarUpdated)
     } catch (e: any) {
       setUploadingAvatar(false)
       if (e?.code === 'E_PICKER_CANCELLED') return
@@ -151,7 +153,7 @@ export default function ProfileScreen({ navigation }: any) {
       await updateProfile(profileForm)
       await refreshUser()
       setEditingProfile(false)
-      showModal(t.done, lang === 'zh' ? '个人资料已更新' : 'Profile updated')
+      showModal(t.done, t.profile_profileUpdated)
     } catch (e: any) {
       showModal(t.error, e.message)
     } finally {
@@ -159,9 +161,7 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }
 
-  const toggleLanguage = () => {
-    setLang(lang === 'en' ? 'zh' : 'en')
-  }
+  const openLanguagePicker = () => setLanguagePickerVisible(true)
 
   const avatarUrl = user?.avatar_url && user.avatar_url.length > 0
     ? (user.avatar_url.startsWith('http') ? user.avatar_url : `${SITE_URL}${user.avatar_url}`) + avatarCacheBuster
@@ -228,7 +228,7 @@ export default function ProfileScreen({ navigation }: any) {
       {/* ── Social Links ── */}
       {(user?.website || user?.twitter || user?.github || user?.linkedin || user?.wechat_official || user?.youtube || user?.bilibili) ? (
         <View style={s.socialRow}>
-          {user.website ? <TouchableOpacity style={s.socialBadge} onPress={() => Linking.openURL(user.website!)}><Icon name="globe" size={13} color={colors.ink600} /><Text style={s.socialText}>{lang === 'zh' ? '网站' : 'Website'}</Text></TouchableOpacity> : null}
+          {user.website ? <TouchableOpacity style={s.socialBadge} onPress={() => Linking.openURL(user.website!)}><Icon name="globe" size={13} color={colors.ink600} /><Text style={s.socialText}>{t.profile_website}</Text></TouchableOpacity> : null}
           {user.twitter ? <TouchableOpacity style={s.socialBadge} onPress={() => Linking.openURL(user.twitter!.startsWith('http') ? user.twitter! : `https://x.com/${user.twitter!.replace('@', '')}`)}><Text style={s.socialIcon}>𝕏</Text><Text style={s.socialText}>{user.twitter.startsWith('@') ? user.twitter : `@${user.twitter}`}</Text></TouchableOpacity> : null}
           {user.github ? <TouchableOpacity style={s.socialBadge} onPress={() => Linking.openURL(user.github!.startsWith('http') ? user.github! : `https://github.com/${user.github}`)}><Icon name="github" size={13} color={colors.ink600} /><Text style={s.socialText}>GitHub</Text></TouchableOpacity> : null}
           {user.linkedin ? <TouchableOpacity style={s.socialBadge} onPress={() => Linking.openURL(user.linkedin!.startsWith('http') ? user.linkedin! : `https://linkedin.com/in/${user.linkedin}`)}><Icon name="linkedin" size={13} color={colors.ink600} /><Text style={s.socialText}>LinkedIn</Text></TouchableOpacity> : null}
@@ -245,11 +245,17 @@ export default function ProfileScreen({ navigation }: any) {
         {user?.email ? (
           <>
             <View style={s.menuRow}>
-              <Icon name="mail" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Icon name="mail" size={16} color={colors.ink500} style={{ marginEnd: 14 }} />
               <Text style={s.menuLabel}>{user.email}</Text>
               {user?.email_verified ? (
                 <View style={s.verifyBadgeOk}><Text style={s.verifyTextOk}>✓</Text></View>
-              ) : null}
+              ) : (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('EmailVerify')}
+                  activeOpacity={0.7}>
+                  <View style={s.verifyBadge}><Text style={s.verifyText}>{t.profile_verifyShort}</Text></View>
+                </TouchableOpacity>
+              )}
             </View>
             <View style={s.menuDivider} />
           </>
@@ -257,7 +263,7 @@ export default function ProfileScreen({ navigation }: any) {
         {user?.phone ? (
           <>
             <View style={s.menuRow}>
-              <Icon name="phone" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Icon name="phone" size={16} color={colors.ink500} style={{ marginEnd: 14 }} />
               <Text style={s.menuLabel}>{user.phone}</Text>
             </View>
             <View style={s.menuDivider} />
@@ -266,17 +272,13 @@ export default function ProfileScreen({ navigation }: any) {
 
         {/* Wallet */}
         <View style={s.walletRow}>
-          <TouchableOpacity style={s.walletBtn} onPress={() => navigation.navigate('Wallet')} activeOpacity={0.7}>
+          <TouchableOpacity style={[s.walletBtn, { flex: 1 }]} onPress={() => navigation.navigate('Wallet')} activeOpacity={0.7}>
             <LinearGradient colors={['#2563eb', '#1e40af']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.walletBtnGradient}>
               <View style={s.walletBtnInner}>
                 <Icon name="plus" size={14} color="#fff" />
                 <Text style={s.walletBtnText}>{t.recharge}</Text>
               </View>
             </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.walletBtnOutline} onPress={() => navigation.navigate('Wallet')} activeOpacity={0.7}>
-            <Icon name="arrow-up-right" size={14} color={colors.primary} />
-            <Text style={s.walletBtnOutlineText}>{t.withdraw}</Text>
           </TouchableOpacity>
         </View>
         <View style={s.menuDivider} />
@@ -285,7 +287,7 @@ export default function ProfileScreen({ navigation }: any) {
         {nonDeletedApis.length > 0 && (
           <>
             <TouchableOpacity style={s.menuRow} onPress={() => setApisExpanded(!apisExpanded)} activeOpacity={0.7}>
-              <Icon name="box" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+              <Icon name="box" size={16} color={colors.ink500} style={{ marginEnd: 14 }} />
               <Text style={s.menuLabel}>{t.myApis} ({nonDeletedApis.length})</Text>
               <Icon name={apisExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.ink400} />
             </TouchableOpacity>
@@ -339,8 +341,8 @@ export default function ProfileScreen({ navigation }: any) {
         )}
 
         {/* Language */}
-        <TouchableOpacity style={s.menuRow} onPress={toggleLanguage} activeOpacity={0.6}>
-          <Icon name="globe" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+        <TouchableOpacity style={s.menuRow} onPress={openLanguagePicker} activeOpacity={0.6}>
+          <Icon name="globe" size={16} color={colors.ink500} style={{ marginEnd: 14 }} />
           <Text style={s.menuLabel}>{t.language}</Text>
           <Text style={s.menuValue}>{t.languageName}</Text>
         </TouchableOpacity>
@@ -348,15 +350,15 @@ export default function ProfileScreen({ navigation }: any) {
 
         {/* API Key */}
         <TouchableOpacity style={s.menuRow} onPress={handleResetKey} activeOpacity={0.6}>
-          <Icon name="key" size={16} color={colors.ink500} style={{ marginRight: 14 }} />
+          <Icon name="key" size={16} color={colors.ink500} style={{ marginEnd: 14 }} />
           <Text style={s.menuLabel}>{t.apiKey}</Text>
-          <Text style={{ fontSize: 12, color: colors.ink400 }}>{apiKey ? (keyVisible ? apiKey.slice(0, 12) + '...' : '••••••••') : lang === 'zh' ? '点击重置' : 'Tap to reset'}</Text>
+          <Text style={{ fontSize: 12, color: colors.ink400 }}>{apiKey ? (keyVisible ? apiKey.slice(0, 12) + '...' : '••••••••') : t.profile_tapToReset}</Text>
         </TouchableOpacity>
         <View style={s.menuDivider} />
 
         {/* Logout */}
         <TouchableOpacity style={s.menuRow} onPress={handleLogout} activeOpacity={0.7}>
-          <Icon name="log-out" size={16} color={colors.error} style={{ marginRight: 14 }} />
+          <Icon name="log-out" size={16} color={colors.error} style={{ marginEnd: 14 }} />
           <Text style={[s.menuLabel, { color: colors.error }]}>{t.logOut}</Text>
         </TouchableOpacity>
       </View>
@@ -370,7 +372,7 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={s.modalOverlay}>
         <View style={s.modalSheet}>
           <View style={s.modalHandle} />
-          <Text style={s.modalTitle}>{lang === 'zh' ? '编辑资料' : 'Edit Profile'}</Text>
+          <Text style={s.modalTitle}>{t.profile_editProfile}</Text>
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
             {/* Avatar upload */}
             <TouchableOpacity style={s.avatarUpload} onPress={handleChangeAvatar} disabled={uploadingAvatar} activeOpacity={0.7}>
@@ -385,16 +387,16 @@ export default function ProfileScreen({ navigation }: any) {
                   <Icon name="camera" size={20} color={colors.ink400} />
                 </View>
               )}
-              <Text style={s.avatarUploadText}>{uploadingAvatar ? (lang === 'zh' ? '上传中...' : 'Uploading...') : (lang === 'zh' ? '更换头像' : 'Change Avatar')}</Text>
+              <Text style={s.avatarUploadText}>{uploadingAvatar ? t.profile_uploading : t.profile_changeAvatar}</Text>
             </TouchableOpacity>
 
-            <Text style={s.inputLabel}>{lang === 'zh' ? '名称' : 'Name'}</Text>
-            <TextInput style={s.input} value={profileForm.name} onChangeText={v => setProfileForm(p => ({ ...p, name: v }))} placeholder={lang === 'zh' ? '你的名称' : 'Your name'} placeholderTextColor={colors.ink400} maxLength={50} />
+            <Text style={s.inputLabel}>{t.name}</Text>
+            <TextInput style={s.input} value={profileForm.name} onChangeText={v => setProfileForm(p => ({ ...p, name: v }))} placeholder={t.profile_namePlaceholder} placeholderTextColor={colors.ink400} maxLength={50} />
 
-            <Text style={s.inputLabel}>{lang === 'zh' ? '简介' : 'Bio'}</Text>
-            <TextInput style={[s.input, { height: 70, textAlignVertical: 'top' }]} value={profileForm.bio} onChangeText={v => setProfileForm(p => ({ ...p, bio: v }))} placeholder={lang === 'zh' ? '介绍一下自己...' : 'Tell us about yourself...'} placeholderTextColor={colors.ink400} multiline maxLength={500} />
+            <Text style={s.inputLabel}>{t.profile_bio}</Text>
+            <TextInput style={[s.input, { height: 70, textAlignVertical: 'top' }]} value={profileForm.bio} onChangeText={v => setProfileForm(p => ({ ...p, bio: v }))} placeholder={t.profile_bioPlaceholder} placeholderTextColor={colors.ink400} multiline maxLength={500} />
 
-            <Text style={s.inputLabel}>{lang === 'zh' ? '网站' : 'Website'}</Text>
+            <Text style={s.inputLabel}>{t.profile_website}</Text>
             <TextInput style={s.input} value={profileForm.website} onChangeText={v => setProfileForm(p => ({ ...p, website: v }))} placeholder="https://" placeholderTextColor={colors.ink400} autoCapitalize="none" keyboardType="url" />
 
             <Text style={s.inputLabel}>X (Twitter)</Text>
@@ -406,26 +408,28 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={s.inputLabel}>LinkedIn</Text>
             <TextInput style={s.input} value={profileForm.linkedin} onChangeText={v => setProfileForm(p => ({ ...p, linkedin: v }))} placeholder="in/username" placeholderTextColor={colors.ink400} autoCapitalize="none" />
 
-            <Text style={s.inputLabel}>{lang === 'zh' ? '微信公众号' : 'WeChat Official'}</Text>
-            <TextInput style={s.input} value={profileForm.wechat_official} onChangeText={v => setProfileForm(p => ({ ...p, wechat_official: v }))} placeholder={lang === 'zh' ? '公众号名称' : 'Official account name'} placeholderTextColor={colors.ink400} />
+            <Text style={s.inputLabel}>{t.profile_wechatOfficial}</Text>
+            <TextInput style={s.input} value={profileForm.wechat_official} onChangeText={v => setProfileForm(p => ({ ...p, wechat_official: v }))} placeholder={t.profile_wechatPlaceholder} placeholderTextColor={colors.ink400} />
 
             <Text style={s.inputLabel}>YouTube</Text>
             <TextInput style={s.input} value={profileForm.youtube} onChangeText={v => setProfileForm(p => ({ ...p, youtube: v }))} placeholder="@channel" placeholderTextColor={colors.ink400} autoCapitalize="none" />
 
-            <Text style={s.inputLabel}>{lang === 'zh' ? 'B站' : 'Bilibili'}</Text>
-            <TextInput style={s.input} value={profileForm.bilibili} onChangeText={v => setProfileForm(p => ({ ...p, bilibili: v }))} placeholder={lang === 'zh' ? '空间ID' : 'Space ID'} placeholderTextColor={colors.ink400} autoCapitalize="none" />
+            <Text style={s.inputLabel}>{t.profile_bilibili}</Text>
+            <TextInput style={s.input} value={profileForm.bilibili} onChangeText={v => setProfileForm(p => ({ ...p, bilibili: v }))} placeholder={t.profile_bilibiliPlaceholder} placeholderTextColor={colors.ink400} autoCapitalize="none" />
           </ScrollView>
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
             <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingProfile(false)}>
               <Text style={s.cancelBtnText}>{t.cancel}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.saveBtn} onPress={saveProfile} disabled={savingProfile}>
-              <Text style={s.saveBtnText}>{savingProfile ? '...' : (lang === 'zh' ? '保存' : 'Save')}</Text>
+              <Text style={s.saveBtnText}>{savingProfile ? '...' : t.home_save}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
     </Modal>
+
+    <LanguagePicker visible={languagePickerVisible} onClose={() => setLanguagePickerVisible(false)} />
   </>
   )
 }
@@ -433,7 +437,7 @@ export default function ProfileScreen({ navigation }: any) {
 function InfoRow({ icon, label, value }: { icon?: string; label: string; value: string }) {
   return (
     <View style={s.infoRow}>
-      {icon ? <Icon name={icon} size={15} color={colors.ink400} style={{ marginRight: 12 }} /> : null}
+      {icon ? <Icon name={icon} size={15} color={colors.ink400} style={{ marginEnd: 12 }} /> : null}
       <Text style={s.infoLabel}>{label}</Text>
       <Text style={s.infoValue}>{value}</Text>
     </View>
@@ -464,7 +468,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
   },
   avatarWrapper: {
-    marginRight: 14,
+    marginEnd: 14,
   },
   avatar: {
     width: 56,
@@ -578,7 +582,7 @@ const s = StyleSheet.create({
     padding: 0,
     overflow: 'hidden',
   },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: 20 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginStart: 20 },
 
   // Info rows
   infoRow: {
@@ -686,7 +690,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: radii.sm,
-    marginRight: 10,
+    marginEnd: 10,
     overflow: 'hidden',
   },
   keyAction: { fontSize: 13, color: colors.primary, fontWeight: fontWeight.semibold },
@@ -746,7 +750,7 @@ const s = StyleSheet.create({
   expandArrow: { fontSize: 10, color: colors.ink500 },
   myApiRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15 },
   myApiRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.sand200 },
-  myApiLeft: { flex: 1, marginRight: 12 },
+  myApiLeft: { flex: 1, marginEnd: 12 },
   myApiName: { fontSize: fs.sm, fontWeight: fontWeight.semibold, color: colors.ink950 },
   myApiMeta: { fontSize: fs.xs, color: colors.ink500, marginTop: 3 },
   myApiStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.xs },
@@ -777,11 +781,11 @@ const s = StyleSheet.create({
     backgroundColor: colors.primary50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginEnd: 14,
   },
   menuLabel: { flex: 1, fontSize: fs.sm, color: colors.ink800, fontWeight: fontWeight.medium },
   menuValue: { fontSize: fs.sm, color: colors.primary, fontWeight: fontWeight.semibold },
-  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginLeft: 50 },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.sand200, marginStart: 50 },
 
   // Wallet buttons
   walletRow: {

@@ -81,7 +81,7 @@ export function TaskCardSkeleton() {
     <View style={tk.card}>
       <View style={tk.left}>
         <SkeletonBox width={32} height={32} borderRadius={10} />
-        <View style={{ flex: 1, marginLeft: 12 }}>
+        <View style={{ flex: 1, marginStart: 12 }}>
           <SkeletonBox width={120} height={13} borderRadius={3} />
           <SkeletonBox width={80} height={10} borderRadius={3} style={{ marginTop: 4 }} />
         </View>
@@ -106,7 +106,7 @@ const tk = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  left: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 },
+  left: { flexDirection: 'row', alignItems: 'center', flex: 1, marginEnd: 12 },
   right: { alignItems: 'flex-end' },
 })
 
